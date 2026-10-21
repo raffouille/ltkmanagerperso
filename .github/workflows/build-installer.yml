@@ -1,0 +1,55 @@
+name: Build installer
+
+# Builds this fork's NSIS installer on demand, unsigned, and keeps it as a workflow artifact.
+# Run it from the Actions tab with "Run workflow".
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build Windows installer
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fork-installer
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `signCommand` signs with League Toolkit's certificate, which a fork must not use, and the
+      # updater artifacts need League Toolkit's updater key.
+      - name: Build installer
+        shell: bash
+        run: pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false,"windows":{"signCommand":null}}}'
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ltk-manager-installer
+          path: |
+            target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error

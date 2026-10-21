@@ -126,12 +126,24 @@ impl Progress {
     }
 }
 
+/// Whether the check asks the update endpoint, which serves the official releases.
+///
+/// Off in this fork, because installing an official release replaces the fork's build and its
+/// changes.
+const OFFERS_RELEASES: bool = false;
+
 /// Ask the update endpoint for a release newer than this build, and keep what it offers.
+///
+/// Returns `None` without a request if [`OFFERS_RELEASES`] is off.
 ///
 /// # Errors
 ///
 /// When the endpoint cannot be reached or answers with a manifest the updater rejects.
 pub async fn check(app: &AppHandle) -> AppResult<Option<PendingUpdate>> {
+    if !OFFERS_RELEASES {
+        return Ok(None);
+    }
+
     let found = app
         .updater()
         .map_err(updater_error)?
