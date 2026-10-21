@@ -3,6 +3,7 @@ export { hashtableQueries, leagueInstallQueries, settingsQueries } from "./queri
 export { useAppInfo } from "./useAppInfo";
 export { useAutoDetectLeaguePath } from "./useAutoDetectLeaguePath";
 export { useAvailableWads } from "./useAvailableWads";
+export { useChampionSkins } from "./useChampionSkins";
 export { useCheckSetupRequired } from "./useCheckSetupRequired";
 export { useDetectLeagueRunAsAdmin } from "./useDetectLeagueRunAsAdmin";
 export { useForcibleMapSkins } from "./useForcibleMapSkins";

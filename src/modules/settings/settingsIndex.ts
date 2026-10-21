@@ -106,6 +106,11 @@ const INDEX = [
     aliases: ["patching.baseSkins"],
   },
   {
+    id: "builtins.keptSkins",
+    key: "builtinMods.keptSkins",
+    title: m.settings_builtins_kept_skins_title(),
+  },
+  {
     id: "builtins.mapSkin",
     key: "builtinMods.mapSkin",
     title: m.settings_builtins_map_skin_title(),

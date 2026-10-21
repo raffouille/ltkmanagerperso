@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { BuiltinModSettings } from "@/lib/tauri";
 import { createMockSettings } from "@/test/fixtures";
 
-import { hasBuiltinMods, withDecoration } from "../builtinMods";
+import { hasBuiltinMods, keptSkinsOf, withDecoration, withKeptSkins } from "../builtinMods";
 
 function withBuiltinMods(builtinMods: Partial<BuiltinModSettings>) {
   const defaults: BuiltinModSettings = {
@@ -65,5 +65,32 @@ describe("withDecoration", () => {
 
   it("sets a decoration forced off or on", () => {
     expect(withDecoration({}, "MSITrophy", "show")).toEqual({ MSITrophy: "show" });
+  });
+});
+
+describe("withKeptSkins", () => {
+  it("sorts the skins of a champion and drops repeats", () => {
+    expect(withKeptSkins({}, "Ahri", [7, 1, 7])).toEqual({ Ahri: [1, 7] });
+  });
+
+  it("replaces another spelling of the champion", () => {
+    expect(withKeptSkins({ ahri: [2], Annie: [5] }, "Ahri", [7])).toEqual({
+      Annie: [5],
+      Ahri: [7],
+    });
+  });
+
+  it("drops the champion for null", () => {
+    expect(withKeptSkins({ Ahri: [7], Annie: [5] }, "Ahri", null)).toEqual({ Annie: [5] });
+  });
+});
+
+describe("keptSkinsOf", () => {
+  it("reads the skins of a champion in any case", () => {
+    expect(keptSkinsOf({ MonkeyKing: [3] }, "monkeyking")).toEqual([3]);
+  });
+
+  it("returns no skin for a champion the setting does not hold", () => {
+    expect(keptSkinsOf({ Ahri: [7] }, "Annie")).toEqual([]);
   });
 });

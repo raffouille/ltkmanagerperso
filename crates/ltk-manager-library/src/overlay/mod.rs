@@ -12,7 +12,9 @@ mod resolve;
 
 pub(crate) use artifacts::OverlayStorageExt;
 pub use build::{OverlayBuildInputs, OverlayBuildOutcome, build_overlay};
-pub use builtin_mods::{ForcibleMapSkin, MapDecoration, forcible_map_skins, map_decorations};
+pub use builtin_mods::{
+    ForcibleMapSkin, MapDecoration, champion_skins, forcible_map_skins, map_decorations,
+};
 pub(crate) use resolve::{resolve_blocked_wads, resolve_string_override_mode};
 
 use crate::mods::ModLibrary;

@@ -9,6 +9,8 @@ export const settingsKeys = {
     [...settingsKeys.all, "forcibleMapSkins", leaguePath] as const,
   mapDecorations: (leaguePath: string) =>
     [...settingsKeys.all, "mapDecorations", leaguePath] as const,
+  championSkins: (leaguePath: string, champion: string) =>
+    [...settingsKeys.all, "championSkins", leaguePath, champion] as const,
   leagueRunAsAdmin: () => [...settingsKeys.all, "leagueRunAsAdmin"] as const,
   hashtableCache: () => [...settingsKeys.all, "hashtableCache"] as const,
   hashtableUpdates: () => [...settingsKeys.all, "hashtableUpdates"] as const,

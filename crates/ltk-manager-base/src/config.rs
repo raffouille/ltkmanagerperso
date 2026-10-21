@@ -6,7 +6,7 @@
 //! persists to a single `settings.json`.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 fn default_true() -> bool {
@@ -186,6 +186,9 @@ pub struct BuiltinModSettings {
     pub default_ward_skins: bool,
     /// Which champions show their base skin on every skin.
     pub base_skins: BaseSkinsScope,
+    /// The skin ids that base skins leaves unchanged, by the champion whose archive holds them,
+    /// such as `MonkeyKing`.
+    pub kept_skins: BTreeMap<String, BTreeSet<u32>>,
     /// Which map skin every game shows.
     pub map_skin: MapSkinMode,
     /// The `name` of the map skin [`MapSkinMode::Forced`] shows, kept while another mode is on.
@@ -322,6 +325,14 @@ mod tests {
                 .map_decorations
                 .get("SR_Hall_Of_Legends"),
             Some(&MapDecorationMode::Hide)
+        );
+
+        let config: Config =
+            serde_json::from_str(r#"{ "builtinMods": { "keptSkins": { "Ahri": [7, 1] } } }"#)
+                .unwrap();
+        assert_eq!(
+            config.builtin_mods.kept_skins.get("Ahri"),
+            Some(&BTreeSet::from([1, 7]))
         );
     }
 

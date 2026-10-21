@@ -104,6 +104,7 @@ export const api = {
   listAvailableWads: settings.listAvailableWads,
   listForcibleMapSkins: settings.listForcibleMapSkins,
   listMapDecorations: settings.listMapDecorations,
+  listChampionSkins: settings.listChampionSkins,
 
   // Mods
   getInstalledMods: library.getInstalledMods,

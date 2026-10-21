@@ -4,6 +4,7 @@ import {
   api,
   type AppError,
   type AppInfo,
+  type ChampionSkin,
   type ForcibleMapSkin,
   type MapDecoration,
   type HashtableCacheStatus,
@@ -105,6 +106,17 @@ export const leagueInstallQueries = {
     queryOptions<MapDecoration[], AppError>({
       queryKey: settingsKeys.mapDecorations(leaguePath ?? ""),
       queryFn: queryFn(api.listMapDecorations),
+      enabled: !!leaguePath,
+      staleTime: 60 * 60 * 1000,
+      retry: false,
+    }),
+
+  /* A champion's skins change only with a patch, so they stay fresh for an hour, keyed on the
+     path they were read from. */
+  championSkins: (leaguePath: string | null | undefined, champion: string) =>
+    queryOptions<ChampionSkin[], AppError>({
+      queryKey: settingsKeys.championSkins(leaguePath ?? "", champion),
+      queryFn: queryFnWithArgs(api.listChampionSkins, champion),
       enabled: !!leaguePath,
       staleTime: 60 * 60 * 1000,
       retry: false,

@@ -3,11 +3,14 @@
 
 use super::launcher::LauncherState;
 use crate::error::{AppResult, IpcResult};
+use crate::services::shared::off_thread;
 use crate::state::{persist_settings, LaunchMode, Settings, SettingsState};
+use ltk_manager_assets::strings::StringKeyIndexState;
 use ltk_manager_base::utils::game::GameDir;
 use ltk_manager_library::overlay::{
-    forcible_map_skins, map_decorations, ForcibleMapSkin, MapDecoration,
+    champion_skins, forcible_map_skins, map_decorations, ForcibleMapSkin, MapDecoration,
 };
+use serde::Serialize;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
@@ -203,6 +206,48 @@ pub fn list_map_decorations(state: State<SettingsState>) -> IpcResult<Vec<MapDec
 fn list_map_decorations_inner(state: &State<SettingsState>) -> AppResult<Vec<MapDecoration>> {
     let config = state.config();
     map_decorations(&GameDir::resolve(&config)?)
+}
+
+/// A skin past the base of one champion, which base skins can leave unchanged.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ChampionSkin {
+    /// The skin id, which the `keptSkins` setting stores.
+    pub id: u32,
+    /// Its name in the game's string table, in the game's locale, such as `Arcade Ahri`.
+    pub name: Option<String>,
+}
+
+/// Every skin past the base of `champion` in the configured install, in id order.
+///
+/// # Errors
+///
+/// Fails when no League install is configured, or the champion's archive cannot be read.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_champion_skins(
+    app_handle: AppHandle,
+    champion: String,
+) -> IpcResult<Vec<ChampionSkin>> {
+    off_thread(move || {
+        let config = app_handle.state::<SettingsState>().config();
+        let ids = champion_skins(&GameDir::resolve(&config)?, &champion)?;
+
+        let index = app_handle
+            .state::<StringKeyIndexState>()
+            .get_or_build(&config);
+        let character = champion.to_ascii_lowercase();
+        Ok(ids
+            .into_iter()
+            .map(|id| ChampionSkin {
+                id,
+                name: index
+                    .text(&format!("game_character_skin_displayname_{character}_{id}"))
+                    .map(str::to_owned),
+            })
+            .collect())
+    })
+    .await
 }
 
 /// Whether League is configured to launch as administrator (an AppCompatFlags

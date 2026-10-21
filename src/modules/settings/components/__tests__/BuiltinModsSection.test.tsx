@@ -4,7 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { ForcibleMapSkin, MapDecoration, Settings } from "@/lib/tauri";
+import type { Champion, ChampionSkin, ForcibleMapSkin, MapDecoration, Settings } from "@/lib/tauri";
 import { commandNames } from "@/test/commandNames";
 
 import { BuiltinModsSection } from "../BuiltinModsSection";
@@ -150,6 +150,90 @@ describe("BuiltinModsSection map decorations", () => {
       expect(savedSettings()).toEqual({
         ...settings,
         builtinMods: { ...settings.builtinMods, mapDecorations: { MSITrophy: "show" } },
+      }),
+    );
+  });
+});
+
+describe("BuiltinModsSection kept skins", () => {
+  const CHAMPIONS: Champion[] = [
+    { id: "Ahri", metadataName: "Ahri", name: "Ahri", icon: null },
+    { id: "MonkeyKing", metadataName: "Wukong", name: "Wukong", icon: null },
+  ];
+
+  const AHRI_SKINS: ChampionSkin[] = [
+    { id: 1, name: "Dynasty Ahri" },
+    { id: 7, name: "Arcade Ahri" },
+  ];
+
+  function withKeptSkins(
+    baseSkins: Settings["builtinMods"]["baseSkins"],
+    keptSkins: Settings["builtinMods"]["keptSkins"],
+  ): Settings {
+    const settings = withMapSkin("game");
+    return { ...settings, builtinMods: { ...settings.builtinMods, baseSkins, keptSkins } };
+  }
+
+  function renderKeptSkins(settings: Settings) {
+    renderSettings(<BuiltinModsSection />, {
+      settings,
+      answers: {
+        [commandNames.game.readChampions]: CHAMPIONS,
+        [commandNames.settings.listChampionSkins]: AHRI_SKINS,
+      },
+    });
+  }
+
+  it("offers kept skins only while base skins is on", () => {
+    renderKeptSkins(withKeptSkins("off", {}));
+
+    expect(screen.queryByText("Kept skins")).not.toBeInTheDocument();
+  });
+
+  it("adds the champion the reader picks", async () => {
+    const settings = withKeptSkins("allChampions", {});
+    renderKeptSkins(settings);
+
+    await userEvent.type(screen.getByRole("combobox", { name: "Add a champion" }), "wuk");
+    await userEvent.click(await screen.findByRole("option", { name: /Wukong/ }));
+
+    await waitFor(() =>
+      expect(savedSettings()).toEqual({
+        ...settings,
+        builtinMods: { ...settings.builtinMods, keptSkins: { MonkeyKing: [] } },
+      }),
+    );
+  });
+
+  it("saves the skin the reader keeps", async () => {
+    const settings = withKeptSkins("allChampions", { Ahri: [1] });
+    renderKeptSkins(settings);
+
+    const search = await screen.findByRole("combobox", { name: "Kept skins of Ahri" });
+    await waitFor(() => expect(search).toBeEnabled());
+    await userEvent.type(search, "arcade");
+    await userEvent.click(await screen.findByRole("option", { name: /Arcade Ahri/ }));
+
+    await waitFor(() =>
+      expect(savedSettings()).toEqual({
+        ...settings,
+        builtinMods: { ...settings.builtinMods, keptSkins: { Ahri: [1, 7] } },
+      }),
+    );
+  });
+
+  it("drops a champion and its skins", async () => {
+    const settings = withKeptSkins("allChampions", { Ahri: [7] });
+    renderKeptSkins(settings);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Stop keeping skins of Ahri" }),
+    );
+
+    await waitFor(() =>
+      expect(savedSettings()).toEqual({
+        ...settings,
+        builtinMods: { ...settings.builtinMods, keptSkins: {} },
       }),
     );
   });

@@ -11,7 +11,7 @@ use ltk_meta::{Bin, BinObject};
 use ltk_overlay::ModContentProvider as _;
 use ltk_wad::WadHash;
 use ltk_wad::{WadBuilder, WadChunkBuilder};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -558,7 +558,10 @@ fn base_skins(
     mods: &mut [EnabledMod],
 ) -> Vec<(String, Vec<u8>)> {
     files(&generate(
-        &BaseSkins { champions },
+        &BaseSkins {
+            champions,
+            kept: BTreeSet::new(),
+        },
         game,
         cache_dir,
         tables,
@@ -1036,6 +1039,70 @@ fn all_champions_take_a_mod_s_base_skin_and_leave_a_skin_a_mod_ships() {
     assert_eq!(
         stand_ins(&files),
         [stand_in("Ahri.wad.client", &skin("ahri", 1), MOD)]
+    );
+}
+
+#[test]
+fn base_skins_leave_a_kept_skin_and_the_companion_skin_of_its_id() {
+    let game = tempfile::tempdir().unwrap();
+    build_wad(
+        &champions_dir(game.path()).join("Annie.wad.client"),
+        &[
+            &skin("annie", 0),
+            &skin("annie", 1),
+            &skin("annie", 2),
+            &skin("annietibbers", 0),
+            &skin("annietibbers", 1),
+            &skin("annietibbers", 2),
+        ],
+    );
+    let tables = Tables::naming(&[
+        skin("annietibbers", 0),
+        skin("annietibbers", 1),
+        skin("annietibbers", 2),
+    ]);
+    let builtin = tempfile::tempdir().unwrap();
+    let settings = BuiltinModSettings {
+        base_skins: ltk_manager_base::config::BaseSkinsScope::AllChampions,
+        kept_skins: BTreeMap::from([("Annie".to_owned(), BTreeSet::from([2]))]),
+        ..BuiltinModSettings::default()
+    };
+
+    let files = files(&generate(
+        &BaseSkins::of(&settings).unwrap(),
+        game.path(),
+        builtin.path(),
+        &tables,
+        &mut [],
+    ));
+
+    assert_eq!(
+        stand_ins(&files),
+        [
+            stand_in("Annie.wad.client", &skin("annie", 1), GAME),
+            stand_in("Annie.wad.client", &skin("annietibbers", 1), GAME),
+        ]
+    );
+}
+
+#[test]
+fn champion_skins_list_each_skin_id_past_the_base_of_the_champion_archive() {
+    let game = tempfile::tempdir().unwrap();
+    build_wad(
+        &champions_dir(game.path()).join("MonkeyKing.wad.client"),
+        &[
+            &skin("monkeyking", 0),
+            &skin("monkeyking", 7),
+            &skin("monkeyking", 1),
+            &skin("monkeykingclone", 2),
+        ],
+    );
+    let game_dir = GameDir::from_path(game.path());
+
+    assert_eq!(champion_skins(&game_dir, "MonkeyKing").unwrap(), [1, 7]);
+    assert_eq!(
+        champion_skins(&game_dir, "Ahri").unwrap(),
+        Vec::<u32>::new()
     );
 }
 

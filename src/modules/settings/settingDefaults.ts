@@ -116,6 +116,10 @@ const SETTING_FORMAT: Partial<Record<SettingKey, SettingFormat>> = {
   "builtinMods.defaultWardSkins": onOff,
   "builtinMods.baseSkins": (value) =>
     baseSkinsOptions().find((option) => option.value === value)?.label ?? titleCase(value),
+  "builtinMods.keptSkins": (value) => {
+    const kept = Object.values((value as Record<string, number[]> | null) ?? {}).flat().length;
+    return kept === 0 ? "None" : `${String(kept)} kept`;
+  },
   "builtinMods.mapSkin": (value) =>
     mapSkinOptions().find((option) => option.value === value)?.label ?? titleCase(value),
   "builtinMods.forcedMapSkin": (value) => (value ? String(value) : "None"),

@@ -206,6 +206,7 @@ services! {
         list_available_wads,
         list_forcible_map_skins,
         list_map_decorations,
+        list_champion_skins,
     }
     patcher("patcher") {
         start_patcher,

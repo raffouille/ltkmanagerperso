@@ -589,6 +589,11 @@ export type BuiltinModSettings = {
 	defaultWardSkins?: boolean,
 	/**  Which champions show their base skin on every skin. */
 	baseSkins?: BaseSkinsScope,
+	/**
+	 *  The skin ids that base skins leaves unchanged, by the champion whose archive holds them,
+	 *  such as `MonkeyKing`.
+	 */
+	keptSkins?: { [key in string]: number[] },
 	/**  Which map skin every game shows. */
 	mapSkin?: MapSkinMode,
 	/**  The `name` of the map skin [`MapSkinMode::Forced`] shows, kept while another mode is on. */
@@ -681,6 +686,14 @@ export type Champion = {
 	name: string | null,
 	/**  The square icon of its base skin. */
 	icon: UiTexture | null,
+};
+
+/**  A skin past the base of one champion, which base skins can leave unchanged. */
+export type ChampionSkin = {
+	/**  The skin id, which the `keptSkins` setting stores. */
+	id: number,
+	/**  Its name in the game's string table, in the game's locale, such as `Arcade Ahri`. */
+	name: string | null,
 };
 
 /**  What a document's rows are compared with. */

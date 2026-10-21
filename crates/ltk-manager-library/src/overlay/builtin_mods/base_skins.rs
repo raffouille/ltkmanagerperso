@@ -7,14 +7,17 @@ use super::overrides::Overrides;
 use super::skin_bin::SkinBin;
 use super::stand_in::BaseSkin;
 use super::{BuiltinMod, Context};
-use ltk_manager_base::config::BaseSkinsScope;
+use ltk_manager_base::config::{BaseSkinsScope, BuiltinModSettings};
 use ltk_manager_base::error::AppResult;
-use std::collections::BTreeMap;
+use ltk_manager_base::utils::game::archive_stem;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Every skin past the base of each champion in scope stands in for the base skin.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct BaseSkins {
     pub(super) champions: Champions,
+    /// The skins left unchanged, each a lowercased champion and a skin id.
+    pub(super) kept: BTreeSet<SkinBin>,
 }
 
 /// The champions base skins takes in.
@@ -27,21 +30,35 @@ pub(super) enum Champions {
 }
 
 impl BaseSkins {
-    /// The mod `scope` turns on, and none when it is off.
-    pub(super) fn of(scope: BaseSkinsScope) -> Option<Self> {
-        let champions = match scope {
+    /// The mod `settings` turn on, and none when its scope is off.
+    pub(super) fn of(settings: &BuiltinModSettings) -> Option<Self> {
+        let champions = match settings.base_skins {
             BaseSkinsScope::Off => return None,
             BaseSkinsScope::ModdedChampions => Champions::Modded,
             BaseSkinsScope::AllChampions => Champions::All,
         };
-        Some(Self { champions })
+        let kept = settings
+            .kept_skins
+            .iter()
+            .flat_map(|(champion, ids)| ids.iter().map(|id| SkinBin::new(champion, *id)))
+            .collect();
+        Some(Self { champions, kept })
+    }
+
+    /// Whether `bin` in `archive` is a kept skin, or a companion's skin of the same id in the
+    /// archive of a champion whose skin is kept.
+    fn keeps(&self, archive: &str, bin: &SkinBin) -> bool {
+        self.kept.contains(bin)
+            || self
+                .kept
+                .contains(&SkinBin::new(archive_stem(archive), bin.id))
     }
 
     /// Each skin past the base the mod stands in for, by character, with the archive holding it.
     ///
-    /// A skin bin a mod ships stays that mod's.
+    /// A skin bin a mod ships stays that mod's, and a kept skin stays the game's.
     fn stand_in_targets(
-        self,
+        &self,
         game: &GameSkins<'_>,
         mods: &ModSkins<'_>,
     ) -> BTreeMap<String, Vec<(String, SkinBin)>> {
@@ -55,7 +72,7 @@ impl BaseSkins {
         };
         let mut targets: BTreeMap<String, Vec<(String, SkinBin)>> = BTreeMap::new();
         for (archive, bin) in held {
-            if !mods.ships(&bin) {
+            if !mods.ships(&bin) && !self.keeps(archive, &bin) {
                 targets
                     .entry(bin.character.clone())
                     .or_default()

@@ -22,6 +22,43 @@ export function baseSkinsOptions(): { value: BaseSkinsScope; label: string }[] {
   ];
 }
 
+/** The kept skin ids of each champion, as the `keptSkins` setting stores them. */
+export type KeptSkins = Partial<Record<string, number[]>>;
+
+/** The key of `champion` in `kept`, matched without case as base skins matches it. */
+export function keptChampionKey(kept: KeptSkins, champion: string): string | undefined {
+  return Object.keys(kept).find((key) => key.toLowerCase() === champion.toLowerCase());
+}
+
+/** The skin ids `kept` holds for `champion`, in any case. */
+export function keptSkinsOf(kept: KeptSkins, champion: string): number[] {
+  const key = keptChampionKey(kept, champion);
+  return (key && kept[key]) || [];
+}
+
+/**
+ * `kept` with the skins of `champion` set to `ids`, sorted, or without `champion` for `null`.
+ * Another spelling of `champion` is dropped, so one champion keeps one entry.
+ */
+export function withKeptSkins(
+  kept: KeptSkins,
+  champion: string,
+  ids: readonly number[] | null,
+): Record<string, number[]> {
+  const next: Record<string, number[]> = {};
+  for (const [key, skins] of Object.entries(kept)) {
+    if (key.toLowerCase() !== champion.toLowerCase() && skins) {
+      next[key] = skins;
+    }
+  }
+
+  if (ids !== null) {
+    next[champion] = [...new Set(ids)].sort((a, b) => a - b);
+  }
+
+  return next;
+}
+
 /** Each map skin mode with its label, in the order the picker lists them. */
 export function mapSkinOptions(): { value: MapSkinMode; label: string }[] {
   return [

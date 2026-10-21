@@ -14,15 +14,17 @@ mod ward_skins;
 
 use base_skins::BaseSkins;
 use fs_err as fs;
+use ltk_manager_assets::game_wads::mount_wad;
 use ltk_manager_base::config::BuiltinModSettings;
 use ltk_manager_base::error::{AppResult, Utf8PathExt};
-use ltk_manager_base::utils::game::GameDir;
+use ltk_manager_base::utils::game::{GameDir, archive_stem};
 use ltk_overlay::{EnabledMod, FsModContent};
 use ltk_wad::PathResolver;
 use map_decorations::MapDecorations;
 use map_skins::MapSkins;
 use overrides::Overrides;
 use serde::Serialize;
+use skin_bin::SkinBin;
 use std::collections::BTreeMap;
 use std::path::Path;
 use ward_skins::DefaultWardSkins;
@@ -63,7 +65,7 @@ fn enabled(settings: &BuiltinModSettings) -> Vec<Box<dyn BuiltinMod>> {
     if settings.default_ward_skins {
         enabled.push(Box::new(DefaultWardSkins));
     }
-    if let Some(base_skins) = BaseSkins::of(settings.base_skins) {
+    if let Some(base_skins) = BaseSkins::of(settings) {
         enabled.push(Box::new(base_skins));
     }
     if let Some(map_skins) = MapSkins::of(settings) {
@@ -147,6 +149,30 @@ pub fn forcible_map_skins(game_dir: &GameDir) -> AppResult<Vec<ForcibleMapSkin>>
     Ok(by_name
         .into_iter()
         .map(|(name, maps)| ForcibleMapSkin { name, maps })
+        .collect())
+}
+
+/// Every skin id past the base that the archive of `champion` in `game_dir` holds a skin bin of
+/// `champion` for, in id order.
+///
+/// Returns an empty list if no champion archive is named after `champion`, in any case.
+///
+/// # Errors
+///
+/// Fails when the champions directory cannot be listed or the champion's archive does not mount.
+pub fn champion_skins(game_dir: &GameDir, champion: &str) -> AppResult<Vec<u32>> {
+    let Some((_, path)) = game_dir
+        .champion_archives()?
+        .into_iter()
+        .find(|(name, _)| archive_stem(name).eq_ignore_ascii_case(champion))
+    else {
+        return Ok(Vec::new());
+    };
+
+    let wad = mount_wad(&path)?;
+    Ok(SkinBin::past_base(champion)
+        .filter(|bin| wad.chunks().contains(bin.hash()))
+        .map(|bin| bin.id)
         .collect())
 }
 

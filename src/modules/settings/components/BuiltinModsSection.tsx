@@ -9,6 +9,7 @@ import { useForcibleMapSkins } from "../api";
 import { useLoadedSettings, useUpdateSettings } from "../api";
 import { baseSkinsOptions, mapSkinDescription, mapSkinOptions } from "../builtinMods";
 import { ForcedMapSkinPicker } from "./ForcedMapSkinPicker";
+import { KeptSkinsControl } from "./KeptSkinsControl";
 import { MapDecorationsControl } from "./MapDecorationsControl";
 import { SettingRow } from "./SettingRow";
 import { SettingRows } from "./SettingRows";
@@ -52,6 +53,16 @@ export function BuiltinModsSection() {
               }
             />
           }
+        />
+
+        <SettingRow
+          setting="builtinMods.keptSkins"
+          dependent
+          layout="stacked"
+          hidden={(settings.builtinMods.baseSkins ?? "off") === "off"}
+          description={m.settings_builtins_kept_skins_description()}
+          hint={m.settings_builtins_kept_skins_hint()}
+          control={<KeptSkinsControl />}
         />
 
         <SettingRow
