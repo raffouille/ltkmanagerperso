@@ -18,6 +18,8 @@ import { SettingRows } from "./SettingRows";
 export function BuiltinModsSection() {
   const settings = useLoadedSettings();
   const update = useUpdateSettings();
+  const baseSkinsOff = (settings.builtinMods.baseSkins ?? "off") === "off";
+
   return (
     <SectionCard
       title={m.settings_tab_builtins_title()}
@@ -56,10 +58,26 @@ export function BuiltinModsSection() {
         />
 
         <SettingRow
+          setting="builtinMods.keepPickedSkin"
+          dependent
+          hidden={baseSkinsOff}
+          description={m.settings_builtins_keep_picked_skin_description()}
+          hint={m.settings_builtins_keep_picked_skin_hint()}
+          control={
+            <Switch
+              checked={settings.builtinMods.keepPickedSkin ?? false}
+              onCheckedChange={(keepPickedSkin) =>
+                update({ builtinMods: { ...settings.builtinMods, keepPickedSkin } })
+              }
+            />
+          }
+        />
+
+        <SettingRow
           setting="builtinMods.keptSkins"
           dependent
           layout="stacked"
-          hidden={(settings.builtinMods.baseSkins ?? "off") === "off"}
+          hidden={baseSkinsOff}
           description={m.settings_builtins_kept_skins_description()}
           hint={m.settings_builtins_kept_skins_hint()}
           control={<KeptSkinsControl />}

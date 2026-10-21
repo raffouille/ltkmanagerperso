@@ -222,6 +222,21 @@ describe("BuiltinModsSection kept skins", () => {
     );
   });
 
+  it("saves keeping the skin picked in champion select", async () => {
+    const settings = withKeptSkins("allChampions", {});
+    renderKeptSkins(settings);
+
+    const row = screen.getByText("Keep the skin I pick").closest("label");
+    await userEvent.click(within(row as HTMLElement).getByRole("switch"));
+
+    await waitFor(() =>
+      expect(savedSettings()).toEqual({
+        ...settings,
+        builtinMods: { ...settings.builtinMods, keepPickedSkin: true },
+      }),
+    );
+  });
+
   it("drops a champion and its skins", async () => {
     const settings = withKeptSkins("allChampions", { Ahri: [7] });
     renderKeptSkins(settings);

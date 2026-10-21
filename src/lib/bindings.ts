@@ -594,6 +594,11 @@ export type BuiltinModSettings = {
 	 *  such as `MonkeyKing`.
 	 */
 	keptSkins?: { [key in string]: number[] },
+	/**
+	 *  Whether base skins also leaves unchanged the skin the local player picks in champion
+	 *  select, read from the League client while the patcher runs.
+	 */
+	keepPickedSkin?: boolean,
 	/**  Which map skin every game shows. */
 	mapSkin?: MapSkinMode,
 	/**  The `name` of the map skin [`MapSkinMode::Forced`] shows, kept while another mode is on. */

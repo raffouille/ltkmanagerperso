@@ -189,6 +189,9 @@ pub struct BuiltinModSettings {
     /// The skin ids that base skins leaves unchanged, by the champion whose archive holds them,
     /// such as `MonkeyKing`.
     pub kept_skins: BTreeMap<String, BTreeSet<u32>>,
+    /// Whether base skins also leaves unchanged the skin the local player picks in champion
+    /// select, read from the League client while the patcher runs.
+    pub keep_picked_skin: bool,
     /// Which map skin every game shows.
     pub map_skin: MapSkinMode,
     /// The `name` of the map skin [`MapSkinMode::Forced`] shows, kept while another mode is on.

@@ -7,7 +7,10 @@ use std::thread::JoinHandle;
 
 use serde::{Deserialize, Serialize};
 
+use ltk_manager_base::config::BuiltinModSettings;
+
 use super::refresh::OverlayRefresh;
+use crate::launcher::champ_select::PickedSkin;
 
 /// Current phase of the patcher lifecycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -89,6 +92,11 @@ pub struct PatcherStateInner {
     pub phase: PatcherPhase,
     /// Last patcher config used, for hot-reload.
     pub last_config: Option<StoredPatcherConfig>,
+    /// The built-in mod settings saved since the session started, which its next build reads.
+    pub builtin_mods: Option<BuiltinModSettings>,
+    /// The skin past the base that the local player last picked in champion select, which the
+    /// next build keeps.
+    pub picked_skin: Option<PickedSkin>,
 }
 
 impl PatcherStateInner {
@@ -100,6 +108,8 @@ impl PatcherStateInner {
             session: None,
             phase: PatcherPhase::Idle,
             last_config: None,
+            builtin_mods: None,
+            picked_skin: None,
         }
     }
 
@@ -113,6 +123,8 @@ impl PatcherStateInner {
     /// Open a session and enter the build phase.
     pub fn begin_session(&mut self, origin: SessionOrigin) {
         self.phase = PatcherPhase::Building;
+        self.builtin_mods = None;
+        self.picked_skin = None;
         self.session = Some(PatcherSession {
             origin,
             overlay_prefix: None,
@@ -123,6 +135,25 @@ impl PatcherStateInner {
     /// does nothing, since a start builds from the library anyway.
     pub fn request_overlay_refresh(&self) {
         if self.is_running() {
+            self.overlay_refresh.request();
+        }
+    }
+
+    /// Hand the running session the built-in mod settings just saved, and ask it to rebuild if
+    /// they changed. Idle, it does nothing, since a start reads the saved settings.
+    pub fn update_builtin_mods(&mut self, settings: &BuiltinModSettings) {
+        if self.is_running() && self.builtin_mods.as_ref() != Some(settings) {
+            self.builtin_mods = Some(settings.clone());
+            self.overlay_refresh.request();
+        }
+    }
+
+    /// Record the skin picked in champion select, `None` for a base skin, and ask the running
+    /// session to rebuild if it changed.
+    pub fn set_picked_skin(&mut self, pick: Option<PickedSkin>) {
+        if self.is_running() && self.picked_skin != pick {
+            tracing::info!("Champion select pick changed to {pick:?}, rebuilding the overlay");
+            self.picked_skin = pick;
             self.overlay_refresh.request();
         }
     }

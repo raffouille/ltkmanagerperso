@@ -24,6 +24,7 @@ use crate::error::{AppError, AppResult};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use ltk_manager_base::config::BuiltinModSettings;
 use ltk_manager_runtime::patcher::host::PatcherHost;
 use parking_lot::Mutex;
 
@@ -78,6 +79,11 @@ impl PatcherState {
     /// Ask a running session to rebuild its overlay after a library write.
     pub fn refresh_overlay(&self) {
         self.with(PatcherStateInner::request_overlay_refresh);
+    }
+
+    /// Hand a running session the built-in mod settings just saved, so it rebuilds with them.
+    pub fn update_builtin_mods(&self, settings: &BuiltinModSettings) {
+        self.with_mut(|inner| inner.update_builtin_mods(settings));
     }
 
     /// Ask a running session to stop, reporting whether there was one.

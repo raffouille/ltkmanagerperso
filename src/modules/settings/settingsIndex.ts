@@ -106,6 +106,11 @@ const INDEX = [
     aliases: ["patching.baseSkins"],
   },
   {
+    id: "builtins.keepPickedSkin",
+    key: "builtinMods.keepPickedSkin",
+    title: m.settings_builtins_keep_picked_skin_title(),
+  },
+  {
     id: "builtins.keptSkins",
     key: "builtinMods.keptSkins",
     title: m.settings_builtins_kept_skins_title(),

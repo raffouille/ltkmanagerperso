@@ -39,9 +39,9 @@ const RECONNECT_ENDPOINTS: [(Method, &str); 3] = [
 
 /// Where the League client listens, as its lockfile names it.
 #[derive(Debug, PartialEq, Eq)]
-struct Lockfile {
-    port: u16,
-    password: String,
+pub(super) struct Lockfile {
+    pub(super) port: u16,
+    pub(super) password: String,
 }
 
 /// Kill the League game process and wait for it to exit.
@@ -161,7 +161,7 @@ fn reconnect_once(client: &Client, lockfile: &Lockfile) -> bool {
 ///
 /// The format is `process:pid:port:password:protocol`, or `process:port:password:protocol` in
 /// older clients.
-fn read_lockfile(league_path: &Path) -> Option<Lockfile> {
+pub(super) fn read_lockfile(league_path: &Path) -> Option<Lockfile> {
     let lockfile_path = league_path.join("lockfile");
 
     let content = match fs::read_to_string(&lockfile_path) {

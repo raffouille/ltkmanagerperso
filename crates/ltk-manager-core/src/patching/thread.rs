@@ -12,13 +12,14 @@ use parking_lot::Mutex;
 
 use ltk_telemetry::Telemetry;
 
-use ltk_manager_base::config::Config;
+use ltk_manager_base::config::{BaseSkinsScope, BuiltinModSettings, Config};
 use ltk_manager_base::error::{AppError, AppResult, message_with_sources};
 use ltk_manager_library::mods::ModLibrary;
 use ltk_manager_library::overlay::{OverlayBuild, WorkshopTestProject};
 use ltk_manager_runtime::diagnostics::binary_id::PatcherBinaries;
 use ltk_manager_runtime::diagnostics::incident::SessionFailure;
 use ltk_manager_runtime::diagnostics::store::IncidentStore;
+use ltk_manager_runtime::launcher::champ_select::ChampSelectReader;
 use ltk_manager_runtime::launcher::is_game_running;
 
 use super::pipeline::IncidentPipeline;
@@ -36,6 +37,33 @@ const GAME_RELEASE_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// How often a rebuild checks whether the game process is gone.
 const GAME_RELEASE_POLL: Duration = Duration::from_millis(100);
+
+/// How often the session reads champion select from the League client.
+const PICK_POLL: Duration = Duration::from_millis(1500);
+
+/// `config` with the built-in mod settings saved since the session started, and the skin picked
+/// in champion select kept by base skins.
+pub fn session_config(config: &Config, state: &PatcherStateInner) -> Config {
+    let mut config = config.clone();
+    if let Some(builtin_mods) = &state.builtin_mods {
+        config.builtin_mods = builtin_mods.clone();
+    }
+
+    if let Some(pick) = &state.picked_skin {
+        config
+            .builtin_mods
+            .kept_skins
+            .entry(pick.champion.clone())
+            .or_default()
+            .insert(pick.skin);
+    }
+    config
+}
+
+/// Whether `settings` ask the session to keep the skin picked in champion select.
+fn keeps_picked_skin(settings: &BuiltinModSettings) -> bool {
+    settings.keep_picked_skin && settings.base_skins != BaseSkinsScope::Off
+}
 
 /// The workshop projects a session started from `config` tests.
 pub fn workshop_tests(config: &StoredPatcherConfig) -> Vec<WorkshopTestProject> {
@@ -165,6 +193,8 @@ impl PatcherThread {
 
     fn run(self) {
         let mut force_rebuild = self.force_rebuild;
+        let ended = Arc::new(AtomicBool::new(false));
+        self.watch_picks(&ended);
 
         loop {
             let Some(overlay_prefix) = self.build_overlay(force_rebuild) else {
@@ -178,8 +208,47 @@ impl PatcherThread {
             self.resume_building();
         }
 
+        ended.store(true, Ordering::SeqCst);
         self.reset_to_idle();
         tracing::info!("Patcher thread exiting");
+    }
+
+    /// Start a thread that records the skin the local player picks in champion select, while the
+    /// built-in mod settings ask for it, until `ended` or the stop flag is set.
+    ///
+    /// A pick is kept after champion select closes, so the game's loading does not rebuild the
+    /// overlay. The next champion select replaces it.
+    fn watch_picks(&self, ended: &Arc<AtomicBool>) {
+        let Some(league_path) = self.config.league_path.clone() else {
+            return;
+        };
+        let started_with = self.config.builtin_mods.clone();
+        let state = Arc::clone(&self.state);
+        let stop_flag = Arc::clone(&self.stop_flag);
+        let ended = Arc::clone(ended);
+        let over = move || ended.load(Ordering::SeqCst) || stop_flag.load(Ordering::SeqCst);
+
+        thread::spawn(move || {
+            let Some(mut reader) = ChampSelectReader::new(league_path) else {
+                return;
+            };
+
+            while !over() {
+                let wanted = {
+                    let state = state.lock();
+                    keeps_picked_skin(state.builtin_mods.as_ref().unwrap_or(&started_with))
+                };
+                if wanted
+                    && let Some(pick) = reader.pick()
+                    && !over()
+                {
+                    state
+                        .lock()
+                        .set_picked_skin((pick.skin > 0).then_some(pick));
+                }
+                thread::sleep(PICK_POLL);
+            }
+        });
     }
 
     /// Build the overlay and return its prefix path, or `None` on failure or
@@ -187,9 +256,10 @@ impl PatcherThread {
     fn build_overlay(&self, force_rebuild: bool) -> Option<String> {
         self.refresh.clear();
 
+        let config = session_config(&self.config, &self.state.lock());
         let stop_flag = Arc::clone(&self.stop_flag);
         let build = match self.library.ensure_overlay(
-            &self.config,
+            &config,
             &self.workshop_projects,
             force_rebuild,
             move || stop_flag.load(Ordering::SeqCst),

@@ -8,6 +8,12 @@ la v1.29.0.
 - **Settings > Built-in mods > Kept skins** : sous **Base skins**, une liste de skins que Base skins
   ne remplace pas. On ajoute un champion, puis on choisit ses skins (chromas compris). Le
   compagnon d'un champion garde le même skin (par exemple Tibbers pour Annie).
+- **Settings > Built-in mods > Keep the skin I pick** : pendant que le patcher tourne, il lit
+  dans le client League le champion et le skin que vous choisissez en sélection, et ne remplace
+  pas ce skin. Seule l'archive de ce champion est reconstruite, en quelques secondes. Choisissez
+  le skin avant les toutes dernières secondes de la sélection.
+- Changer **Kept skins** pendant que le patcher tourne reconstruit le patch tout de suite, sans
+  le relancer.
 - Les mises à jour automatiques sont coupées (`OFFERS_RELEASES` dans `src-tauri/src/updater.rs`),
   sinon une version officielle remplacerait celle-ci.
 - Le workflow `CI` officiel est désactivé dans l'onglet Actions, pour ne pas consommer de minutes.

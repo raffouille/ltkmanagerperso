@@ -116,6 +116,7 @@ const SETTING_FORMAT: Partial<Record<SettingKey, SettingFormat>> = {
   "builtinMods.defaultWardSkins": onOff,
   "builtinMods.baseSkins": (value) =>
     baseSkinsOptions().find((option) => option.value === value)?.label ?? titleCase(value),
+  "builtinMods.keepPickedSkin": onOff,
   "builtinMods.keptSkins": (value) => {
     const kept = Object.values((value as Record<string, number[]> | null) ?? {}).flat().length;
     return kept === 0 ? "None" : `${String(kept)} kept`;

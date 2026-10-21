@@ -41,12 +41,13 @@ pub(crate) fn save_settings_inner(
     // Before the write, so a secret minted here reaches the file with everything
     // else rather than waiting for the next save.
     let (secret, _) = crate::telemetry::ensure_secret(&mut settings);
-    let (was_collecting, had_file_types, had_beta_patcher) = {
+    let (was_collecting, had_file_types, had_beta_patcher, had_builtin_mods) = {
         let current = state.0.lock();
         (
             current.telemetry_enabled,
             current.register_file_types,
             current.config.beta_patcher,
+            current.config.builtin_mods.clone(),
         )
     };
 
@@ -59,6 +60,12 @@ pub(crate) fn save_settings_inner(
     }
 
     persist_settings(app_handle, &settings)?;
+
+    if settings.config.builtin_mods != had_builtin_mods {
+        app_handle
+            .state::<crate::patcher::PatcherState>()
+            .update_builtin_mods(&settings.config.builtin_mods);
+    }
 
     if settings.register_file_types != had_file_types {
         super::integrations::apply_file_types(app_handle, settings.register_file_types);

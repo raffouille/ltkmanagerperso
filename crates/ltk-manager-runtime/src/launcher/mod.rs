@@ -12,6 +12,7 @@
 //! the command that started them, so one lives in app state rather than being
 //! rebuilt per call.
 
+pub mod champ_select;
 pub mod install;
 mod reload;
 mod types;
