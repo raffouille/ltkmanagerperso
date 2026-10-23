@@ -47,6 +47,8 @@ export const commands = {
 	/**
 	 *  Every skin past the base of `champion` in the configured install, in id order.
 	 * 
+	 *  A skin the game's string table does not name is named from CommunityDragon.
+	 * 
 	 *  # Errors
 	 * 
 	 *  Fails when no League install is configured, or the champion's archive cannot be read.

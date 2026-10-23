@@ -7,6 +7,7 @@ use crate::services::shared::off_thread;
 use crate::state::{persist_settings, LaunchMode, Settings, SettingsState};
 use ltk_manager_assets::strings::StringKeyIndexState;
 use ltk_manager_base::utils::game::GameDir;
+use ltk_manager_core::skin_names::skin_names;
 use ltk_manager_library::overlay::{
     champion_skins, forcible_map_skins, map_decorations, ForcibleMapSkin, MapDecoration,
 };
@@ -227,6 +228,8 @@ pub struct ChampionSkin {
 
 /// Every skin past the base of `champion` in the configured install, in id order.
 ///
+/// A skin the game's string table does not name is named from CommunityDragon.
+///
 /// # Errors
 ///
 /// Fails when no League install is configured, or the champion's archive cannot be read.
@@ -238,13 +241,14 @@ pub async fn list_champion_skins(
 ) -> IpcResult<Vec<ChampionSkin>> {
     off_thread(move || {
         let config = app_handle.state::<SettingsState>().config();
-        let ids = champion_skins(&GameDir::resolve(&config)?, &champion)?;
+        let game_dir = GameDir::resolve(&config)?;
+        let ids = champion_skins(&game_dir, &champion)?;
 
         let index = app_handle
             .state::<StringKeyIndexState>()
             .get_or_build(&config);
         let character = champion.to_ascii_lowercase();
-        Ok(ids
+        let mut skins: Vec<ChampionSkin> = ids
             .into_iter()
             .map(|id| ChampionSkin {
                 id,
@@ -252,7 +256,18 @@ pub async fn list_champion_skins(
                     .text(&format!("game_character_skin_displayname_{character}_{id}"))
                     .map(str::to_owned),
             })
-            .collect())
+            .collect();
+
+        if skins.iter().any(|skin| skin.name.is_none()) {
+            tracing::info!(
+                "The game's string table names no skin of {champion}, reading CommunityDragon"
+            );
+            let names = skin_names(&champion, game_dir.locale().as_deref());
+            for skin in skins.iter_mut().filter(|skin| skin.name.is_none()) {
+                skin.name = names.get(&skin.id).cloned();
+            }
+        }
+        Ok(skins)
     })
     .await
 }

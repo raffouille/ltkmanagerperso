@@ -8,3 +8,4 @@ pub mod github;
 pub mod news;
 pub mod patching;
 pub mod releases;
+pub mod skin_names;
