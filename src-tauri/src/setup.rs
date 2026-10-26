@@ -57,16 +57,12 @@ pub fn run(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // library fetch them) is what removed the old "must be managed before
     // reconcile" ordering constraint.
     let default_storage_dir = crate::state::get_app_data_dir(&app_handle);
-    let storage_dir = settings
-        .config
-        .mod_storage_path
-        .clone()
-        .or_else(|| default_storage_dir.clone());
+    let storage_dir = crate::data_location::data_dir(&app_handle, &settings.config);
     let wad_reports = Arc::new(WadReportState::new(storage_dir.as_deref()));
-    let incidents_dir = match &default_storage_dir {
-        Some(dir) => dir.join("incidents"),
+    let incidents_dir = match &storage_dir {
+        Some(dir) => dir.join(crate::data_location::INCIDENTS),
         None => {
-            tracing::warn!("No app data directory, keeping incidents under the temp directory");
+            tracing::warn!("No data directory, keeping incidents under the temp directory");
             std::env::temp_dir()
                 .join("dev.leaguetoolkit.manager")
                 .join("incidents")
@@ -110,8 +106,7 @@ pub fn run(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let deep_link_state = DeepLinkState::new();
 
-    let patcher_delivery =
-        PatcherDeliveryState::new(crate::state::get_app_data_dir(&app_handle).as_deref());
+    let patcher_delivery = PatcherDeliveryState::new(storage_dir.as_deref());
     patcher_delivery.sync_in_background(&settings.config);
 
     let launcher_state = LauncherState::new(&app_handle, &settings.config)?;
@@ -130,7 +125,11 @@ pub fn run(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(checksum_mismatches);
     app.manage(wad_reports);
     app.manage(ltk_manager_assets::strings::StringKeyIndexState::default());
-    app.manage(ltk_manager_assets::game_index::GameIndexState::default());
+    app.manage(
+        crate::state::chunk_index_cache_path(&app_handle)
+            .map(ltk_manager_assets::game_index::GameIndexState::cached_at)
+            .unwrap_or_default(),
+    );
     app.manage(wad_resolver);
     app.manage(ltk_manager_assets::game_index::SearchGeneration::default());
     app.manage(ltk_manager_assets::game_index::FindGeneration::default());

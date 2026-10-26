@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 use crate::error::{AppError, AppResult};
 use crate::services::game::index::built_game_index;
+use crate::services::preview::material::shader_defs;
+use crate::services::shared::installed::installed_schema;
+use crate::services::shared::linked_reader;
 use crate::state::SettingsState;
 use ltk_hash::BinHash;
 use ltk_manager_assets::game_index::GameIndex;
@@ -13,8 +16,10 @@ use ltk_manager_assets::hashtables::{BinHashTablesState, WadPathResolverState};
 use ltk_manager_bin::bin_document::{
     AssetLookup, BinDocument, BinDocumentId, BinDocuments, RowNames,
 };
+use ltk_manager_bin::meta_schema::SchemaNames;
 use ltk_manager_bin::object_index::parse_hash;
 use ltk_manager_bin::sandbox::{Sandbox, SandboxRef, SandboxState};
+use ltk_manager_game::lookup::ObjectLookup;
 use tauri::{AppHandle, Manager};
 
 /// An object hash a command was handed, `0x` and eight hex digits.
@@ -49,6 +54,27 @@ pub(crate) fn read_resolved<T>(
     with_resolution(app, Some(document), |names, assets| {
         let open = app.state::<BinDocuments>().document(document)?;
         read(&open, names, assets)
+    })
+}
+
+/// Run `read` over the bins of the lookup over the open `document`, as [`read_resolved`] runs it.
+///
+/// Every read that resolves an object the document names goes through this, so a bin that
+/// the document links is read once per call and no caller names it (ADR-0068). A class or
+/// field that the hash tables leave unnamed takes the meta schema's name, and the shader defs
+/// are read beside the document, the project's copy first.
+pub(crate) fn read_lookup<T>(
+    app: &AppHandle,
+    document: BinDocumentId,
+    read: impl FnOnce(&mut ObjectLookup<'_>) -> AppResult<T>,
+) -> AppResult<T> {
+    let (schema, _) = installed_schema(app);
+    read_resolved(app, document, |open, names, assets| {
+        let names = SchemaNames::new(names, &schema);
+        let shaders = shader_defs(app, assets);
+        let mut lookup =
+            ObjectLookup::new(open, &names, assets, shaders.as_deref(), linked_reader(app));
+        read(&mut lookup)
     })
 }
 

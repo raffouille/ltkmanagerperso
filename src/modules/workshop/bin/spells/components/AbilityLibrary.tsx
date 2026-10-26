@@ -185,10 +185,9 @@ function AbilityEditor({
   recipe: AbilityRecipe;
   onChange: (recipe: AbilityRecipe) => void;
 }) {
-  const read = useSkinGraphSource(source.document, source.asset, source.entry);
+  const read = useSkinGraphSource(source.document, source.entry);
   return (
     <div className="min-h-0 flex-1 overflow-auto p-3 scrollbar-md">
-      {read.opener}
       {read.skin.isError && <Notice text={m.workshop_bin_preview_failed_empty()} />}
       {read.skin.isPending && <Notice text={m.workshop_spells_loading_label()} />}
       {read.skin.data !== undefined && (

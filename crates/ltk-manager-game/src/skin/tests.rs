@@ -5,8 +5,14 @@ use ltk_hash::{Hash as _, WadHash};
 use ltk_meta::property::{Kind, values};
 use ltk_meta::{Bin, BinObject};
 
+use super::effects::{
+    BONE_NAME, EFFECT_NAME, PERSISTENT_CONDITIONS, PERSISTENT_VFXS, POSITION, SUBMESHES_TO_HIDE,
+    SUBMESHES_TO_SHOW, TARGET_BONE_NAME,
+};
 use super::*;
-use crate::resolver::RESOURCE_MAP;
+use crate::lookup::ObjectLookup;
+use crate::resolver::{EFFECT_KEY, RESOURCE_MAP};
+use ltk_manager_assets::preview::AssetRef;
 
 use crate::material::{BaseRule, Blending};
 
@@ -692,18 +698,93 @@ fn a_skin_names_its_animation_graph() {
     assert_eq!(read_skin().animation_graph, Some(hex(h(GRAPH))));
 }
 
-/// The first entry for a key is the one the resolver answers with, and a key it does not
-/// map keeps no system.
 #[test]
-fn an_idle_effect_reaches_the_system_its_key_resolves_to() {
+fn idle_effect_reads_key_bone_and_offset() {
     let effects = read_skin().idle_effects;
 
     assert_eq!(effects.len(), 2);
     assert_eq!(effects[0].effect_key, hex(h("Tail")));
-    assert_eq!(effects[0].system, Some(hex(h(SYSTEM))));
     assert_eq!(effects[0].bone, "Tail_Base");
     assert_eq!(effects[0].position, [0.0, 10.0, 0.0]);
-    assert_eq!(effects[1].system, None);
+    assert_eq!(effects[1].effect_key, hex(h("Unmapped")));
+}
+
+#[test]
+fn idle_effect_keys_by_effect_name_without_effect_key() {
+    let named_only = embedded(
+        "SkinCharacterDataProperties_CharacterIdleEffect",
+        vec![
+            (EFFECT_NAME, values::String::from("Tail").into()),
+            (BONE_NAME, values::String::from("Root").into()),
+        ],
+    );
+    let skin = BinObject::builder(h(SKIN), h("SkinCharacterDataProperties"))
+        .property(RESOURCE_RESOLVER, values::ObjectLink::new(h(RESOLVER)))
+        .property(IDLE_EFFECTS, values::Container::from(vec![named_only]))
+        .build();
+    let document = document_of(vec![skin, resolver(), system()]);
+
+    let effects = resolve_skin(&document, h(SKIN), &Tables, &Placed, None)
+        .unwrap()
+        .idle_effects;
+
+    assert_eq!(effects[0].effect_key, hex(h("Tail")));
+}
+
+/// A persistent condition lists its effects as an idle effect is listed, and its submeshes
+/// as the hashes the file holds.
+#[test]
+fn a_persistent_condition_lists_its_effects_and_submeshes() {
+    let vfx = |key: &str, bone: &str| {
+        embedded(
+            "PersistentVfxData",
+            vec![
+                (EFFECT_KEY, values::Hash::new(h(key)).into()),
+                (BONE_NAME, values::String::from(bone).into()),
+            ],
+        )
+    };
+    let condition = values::Struct {
+        class_hash: h("PersistentEffectConditionData"),
+        properties: [
+            (
+                h("OwnerCondition"),
+                pointer("HasBuffDynamicMaterialBoolDriver", Vec::new()),
+            ),
+            (
+                PERSISTENT_VFXS,
+                values::Container::from(vec![vfx("Tail", "Tail_Base"), vfx("Unmapped", "Root")])
+                    .into(),
+            ),
+            (SUBMESHES_TO_SHOW, hashes(&["Wings"])),
+            (SUBMESHES_TO_HIDE, hashes(&["Cape", "Hat"])),
+        ]
+        .into_iter()
+        .collect(),
+    };
+    let skin = BinObject::builder(h(SKIN), h("SkinCharacterDataProperties"))
+        .property(RESOURCE_RESOLVER, values::ObjectLink::new(h(RESOLVER)))
+        .property(
+            PERSISTENT_CONDITIONS,
+            values::Container::from(vec![condition]),
+        )
+        .build();
+    let document = document_of(vec![skin, resolver(), system()]);
+
+    let conditions = resolve_skin(&document, h(SKIN), &Tables, &Placed, None)
+        .unwrap()
+        .persistent_conditions;
+
+    assert_eq!(conditions.len(), 1);
+    let [tail, unmapped] = conditions[0].effects.as_slice() else {
+        panic!("expected two effects, got {:?}", conditions[0].effects);
+    };
+    assert_eq!(tail.effect_key, hex(h("Tail")));
+    assert_eq!(tail.bone, "Tail_Base");
+    assert_eq!(tail.position, [0.0; 3]);
+    assert_eq!(unmapped.bone, "Root");
+    assert_eq!(conditions[0].shown, [hex(h("Wings"))]);
+    assert_eq!(conditions[0].hidden, [hex(h("Cape")), hex(h("Hat"))]);
 }
 
 /// The resolver's map crosses with the skin, less the keys mapping to nothing this document
@@ -715,18 +796,15 @@ fn a_skin_lists_the_systems_its_resolver_declares() {
         [EffectSystem {
             key: hex(h("Tail")),
             system: hex(h(SYSTEM)),
-            source: None,
+            name: None,
         }]
     );
 }
 
-/// A system the skin's file keeps in a file of its own is reached through the skin's
-/// links and names that file, and a key no file declares a system for is left out.
-#[test]
-fn a_system_the_skin_lacks_is_looked_for_in_the_files_it_links() {
-    const PARTICLES: &str = "DATA/Characters/Ahri/Skins/Skin3/Particles.bin";
-    const WING_SYSTEM: &str = "Characters/Ahri/Skins/Skin3/Particles/Ahri_Skin03_Wing";
-    let resolver = BinObject::builder(h(RESOLVER), h("ResourceResolver"))
+/// A resolver that maps `Tail` to the fixture's system, `Wing` to a system of a linked bin, and
+/// `Lost` to a system that no bin declares.
+fn wide_resolver() -> BinObject {
+    BinObject::builder(h(RESOLVER), h("ResourceResolver"))
         .property(
             RESOURCE_MAP,
             values::Map::new(
@@ -749,45 +827,67 @@ fn a_system_the_skin_lacks_is_looked_for_in_the_files_it_links() {
             )
             .unwrap(),
         )
-        .build();
-    let document = document_linking(vec![skin(), resolver, system()], &[PARTICLES]);
-    let mut model = resolve_skin(&document, h(SKIN), &Tables, &Placed, None).unwrap();
-    assert_eq!(model.effect_systems.len(), 1);
+        .build()
+}
 
-    let linked = document
-        .dependencies()
-        .iter()
-        .filter_map(|path| Placed.locate(path))
-        .collect();
-    search_linked_systems(
-        &mut model,
-        &document,
-        h(SKIN),
-        linked,
-        &Placed,
-        &mut |asset| {
-            (asset == &file(PARTICLES).unwrap()).then(|| {
-                document_of(vec![
-                    BinObject::builder(h(WING_SYSTEM), h("VfxSystemDefinitionData")).build(),
-                ])
-            })
-        },
-    );
+const PARTICLES: &str = "DATA/Characters/Ahri/Skins/Skin3/Particles.bin";
+const WING_SYSTEM: &str = "Characters/Ahri/Skins/Skin3/Particles/Ahri_Skin03_Wing";
 
+/// Resolves the fixture skin of `open` through a lookup that reads `linked` for the particles
+/// bin.
+fn reach_skin(open: &BinDocument, linked: Vec<BinObject>) -> SkinModel {
+    let mut linked = Some(linked);
+    let mut read = |asset: &AssetRef| {
+        (asset == &file(PARTICLES).unwrap()).then(|| document_of(linked.take().unwrap_or_default()))
+    };
+    ObjectLookup::new(open, &Tables, &Placed, None, &mut read)
+        .skin(h(SKIN))
+        .unwrap()
+}
+
+fn tail_and_wing() -> Vec<EffectSystem> {
     let mut expected = vec![
         EffectSystem {
             key: hex(h("Tail")),
             system: hex(h(SYSTEM)),
-            source: None,
+            name: None,
         },
         EffectSystem {
             key: hex(h("Wing")),
             system: hex(h(WING_SYSTEM)),
-            source: file(PARTICLES),
+            name: None,
         },
     ];
     expected.sort_by(|a, b| a.key.cmp(&b.key));
-    assert_eq!(model.effect_systems, expected);
+    expected
+}
+
+#[test]
+fn reachable_skin_maps_keys_to_systems_of_linked_bins() {
+    let open = document_linking(vec![skin(), wide_resolver(), system()], &[PARTICLES]);
+
+    let model = reach_skin(
+        &open,
+        vec![BinObject::builder(h(WING_SYSTEM), h("VfxSystemDefinitionData")).build()],
+    );
+
+    assert_eq!(model.effect_systems, tail_and_wing());
+}
+
+#[test]
+fn reachable_skin_reads_resolver_from_linked_bin() {
+    let open = document_linking(vec![skin()], &[PARTICLES]);
+
+    let model = reach_skin(
+        &open,
+        vec![
+            wide_resolver(),
+            system(),
+            BinObject::builder(h(WING_SYSTEM), h("VfxSystemDefinitionData")).build(),
+        ],
+    );
+
+    assert_eq!(model.effect_systems, tail_and_wing());
 }
 
 /// An event's frames, and what it does for the kinds a viewport plays. A kind it does not
@@ -1031,6 +1131,7 @@ fn a_skin_that_names_nothing_answers_the_defaults() {
     assert!(skin.self_illumination.abs() < f32::EPSILON);
     assert_eq!(skin.emissive_texture, None);
     assert!(skin.idle_effects.is_empty());
+    assert!(skin.persistent_conditions.is_empty());
     assert_eq!(skin.animation_graph, None);
 }
 
@@ -1097,7 +1198,6 @@ fn a_graph_lists_every_clip_in_map_order() {
             &hex(h("Form")),
         ]
     );
-    assert_eq!(graph.source, None);
 }
 
 /// An atomic clip carries its file, its tick, its keys, its events and its flags. Its
@@ -1233,28 +1333,18 @@ fn a_graph_that_names_nothing_answers_empty_lists() {
 }
 
 #[test]
-fn a_graph_the_file_declares_answers_itself() {
-    let document = document_of(vec![graph()]);
+fn reachable_graph_reads_graph_of_open_bin() {
+    let open = document_of(vec![graph()]);
+    let mut read = |_: &AssetRef| None;
+    let mut lookup = ObjectLookup::new(&open, &Tables, &Placed, None, &mut read);
 
-    let found = graph_at(&document, h(GRAPH), &Tables, &Placed).unwrap();
+    let found = lookup.graph(h(GRAPH)).unwrap();
 
-    assert_eq!(found, GraphRead::Found(read_graph()));
-}
-
-/// The skin file names its animations bin among its dependencies, and a link nothing on
-/// this machine holds is left out.
-#[test]
-fn a_graph_the_file_lacks_is_looked_for_in_the_files_it_links() {
-    const ANIMATIONS: &str = "DATA/Characters/Ahri/Animations/Skin3.bin";
-    let document = document_linking(vec![skin()], &[ANIMATIONS, SKL]);
-
-    let linked = graph_at(&document, h(GRAPH), &Tables, &Placed).unwrap();
-
-    assert_eq!(linked, GraphRead::Linked(vec![file(ANIMATIONS).unwrap()]));
+    assert_eq!(found, read_graph());
 }
 
 /// A material a merged CAC bin declares is reached through the skin's links, and one no
-/// file within reach declares stays missing.
+/// bin of the lookup declares stays missing.
 #[test]
 fn a_material_the_skin_lacks_is_looked_for_in_the_files_it_links() {
     const CAC: &str = "DATA/Characters/Ahri/Skins/Skin3/CAC.bin";
@@ -1279,26 +1369,22 @@ fn a_material_the_skin_lacks_is_looked_for_in_the_files_it_links() {
         .property(MESH_PROPERTIES, mesh)
         .build();
     let document = document_linking(vec![bare], &[CAC]);
-    let mut model = resolve_skin(&document, h(SKIN), &Tables, &Placed, None).unwrap();
+    let own = resolve_skin(&document, h(SKIN), &Tables, &Placed, None).unwrap();
     assert!(
-        model
-            .material
+        own.material
             .as_ref()
             .is_some_and(|material| material.missing)
     );
 
-    let linked = document
-        .dependencies()
-        .iter()
-        .filter_map(|path| Placed.locate(path))
-        .collect();
-    search_linked_materials(&mut model, linked, &Tables, &Placed, None, &mut |asset| {
+    let mut read = |asset: &AssetRef| {
         (asset == &file(CAC).unwrap()).then(|| document_of(vec![wings_material()]))
-    });
+    };
+    let model = ObjectLookup::new(&document, &Tables, &Placed, None, &mut read)
+        .skin(h(SKIN))
+        .unwrap();
 
     let body = model.material.expect("the skin's material");
     assert!(!body.missing);
-    assert_eq!(body.source, file(CAC));
     assert_eq!(
         body.base.as_ref().map(|base| base.texture.asset.clone()),
         Some(file(WINGS))
@@ -1323,50 +1409,39 @@ fn circle(asset: &AssetRef, objects: fn() -> Vec<BinObject>) -> Option<BinDocume
     }
 }
 
-/// The graph found through a link names the file it was found in as its source.
-#[test]
-fn a_graph_is_found_in_a_file_a_linked_file_links() {
-    let found = search_linked(
-        vec![file("DATA/A.bin").unwrap()],
-        h(GRAPH),
-        &Tables,
-        &Placed,
-        &mut |asset| circle(asset, || vec![graph()]),
-    )
-    .unwrap();
-
-    assert_eq!(found.clips.len(), 11);
-    assert_eq!(found.source, file("DATA/B.bin"));
+/// Resolves the graph through a lookup whose open bin links `DATA/A.bin`.
+fn graph_through_circle(
+    read: &mut dyn FnMut(&AssetRef) -> Option<BinDocument>,
+) -> Result<AnimationGraph, BinDocumentError> {
+    let open = document_linking(vec![skin()], &["DATA/A.bin"]);
+    ObjectLookup::new(&open, &Tables, &Placed, None, read).graph(h(GRAPH))
 }
 
 #[test]
-fn a_linked_file_that_cannot_be_read_is_passed_over() {
-    let found = search_linked(
-        vec![file("DATA/Gone.bin").unwrap(), file("DATA/B.bin").unwrap()],
-        h(GRAPH),
-        &Tables,
-        &Placed,
-        &mut |asset| circle(asset, || vec![graph()]),
-    )
-    .unwrap();
+fn reachable_graph_reads_graph_of_bin_that_linked_bin_links() {
+    let found = graph_through_circle(&mut |asset| circle(asset, || vec![graph()])).unwrap();
 
     assert_eq!(found.clips.len(), 11);
 }
 
-/// Each file of a circle is read once, so a search through one ends.
 #[test]
-fn links_that_circle_without_the_graph_end_not_found() {
+fn reachable_graph_passes_over_linked_bin_that_cannot_be_read() {
+    let open = document_linking(vec![skin()], &["DATA/Gone.bin", "DATA/B.bin"]);
+    let mut read = |asset: &AssetRef| circle(asset, || vec![graph()]);
+    let mut lookup = ObjectLookup::new(&open, &Tables, &Placed, None, &mut read);
+
+    let found = lookup.graph(h(GRAPH)).unwrap();
+
+    assert_eq!(found.clips.len(), 11);
+}
+
+#[test]
+fn reachable_graph_in_circle_of_links_without_it_is_not_found() {
     let mut reads = 0;
-    let err = search_linked(
-        vec![file("DATA/A.bin").unwrap()],
-        h(GRAPH),
-        &Tables,
-        &Placed,
-        &mut |asset| {
-            reads += 1;
-            circle(asset, Vec::new)
-        },
-    )
+    let err = graph_through_circle(&mut |asset| {
+        reads += 1;
+        circle(asset, Vec::new)
+    })
     .unwrap_err();
 
     assert!(matches!(err, BinDocumentError::NodeNotFound { .. }));

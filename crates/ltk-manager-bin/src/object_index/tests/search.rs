@@ -86,8 +86,11 @@ fn a_class_no_table_names_is_reached_by_its_hex_and_reads_as_hex() {
         "data/objects.bin",
         prop(&[("characters/smolder", "Unnamed")]),
     )];
-    let (_tmp, index) = build(&[("Objects.wad.client", chunks)], 1);
-    let index = index.named(&TestNames::over(&["characters/smolder"], &[]));
+    let (_tmp, index) = build_named(
+        &[("Objects.wad.client", chunks)],
+        1,
+        TestNames::over(&["characters/smolder"], &[]),
+    );
     let class = BinHash::hash_str("Unnamed");
 
     let result = index.search(&format!("class:{} smolder", hex(class)), || false);
@@ -305,8 +308,11 @@ fn an_object_no_table_names_reads_as_its_hex_and_answers_to_its_hash_alone() {
         "data/objects.bin",
         prop(&[("characters/secret", "Skin"), ("characters/known", "Skin")]),
     )];
-    let (_tmp, index) = build(&[("Objects.wad.client", chunks)], 1);
-    let index = index.named(&TestNames::over(&["characters/known"], &[]));
+    let (_tmp, index) = build_named(
+        &[("Objects.wad.client", chunks)],
+        1,
+        TestNames::over(&["characters/known"], &[]),
+    );
     let secret = BinHash::hash_str("characters/secret");
 
     let result = index.search("characters", || false);

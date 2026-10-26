@@ -3,13 +3,33 @@ import type { BinEdit, BinRow, LeafValue, PropertyEdit, VfxObject } from "@/lib/
 import { EFFECT } from "../../classes/utils/classLayouts";
 import { setField } from "../../material/utils/entryEdits";
 import { nameHash } from "../../shared/utils/binHash";
+import { childCount } from "../../tree/utils/binRows";
 import { systemLeaf } from "../../vfx/children/childModel";
 
 /** `idleParticlesEffects`, the skin's list of idle effects. */
 export const IDLE_EFFECTS = nameHash("idleParticlesEffects");
 
-/** The class of one element of `idleParticlesEffects`. */
-const IDLE_EFFECT_CLASS = "SkinCharacterDataProperties_CharacterIdleEffect";
+/** A list of effects of the skin, which an add appends to. */
+export interface EffectListPath {
+  /** The path of the struct that holds the list, and empty for the skin itself. */
+  readonly holder: string;
+  /** The list's field, `0x` and eight hex digits. */
+  readonly field: string;
+  /** The class of one element. */
+  readonly class: string;
+}
+
+/** `idleParticlesEffects`, the list of effects the skin draws at all times. */
+export const IDLE_LIST: EffectListPath = {
+  holder: "",
+  field: IDLE_EFFECTS,
+  class: "SkinCharacterDataProperties_CharacterIdleEffect",
+};
+
+/** Returns the number of items the list row `row` holds, and zero where the skin lacks it. */
+export function listLength(row: BinRow | undefined): number {
+  return row === undefined ? 0 : childCount(row);
+}
 
 /** A key of the resolver's `resourceMap`. */
 export interface ResolverKey {
@@ -20,11 +40,12 @@ export interface ResolverKey {
   readonly fresh: boolean;
 }
 
-/** One idle effect to add, and the resolver key it is keyed by. */
-export interface IdleEffectAdd {
+/** One effect to add, and the resolver key it is keyed by. */
+export interface NewEffect {
   /** The skin object, `0x` and eight hex digits. */
   readonly skin: string;
-  /** The number of effects the skin's list holds, which is the new effect's index. */
+  readonly path: EffectListPath;
+  /** The number of effects the list holds, which is the new effect's index. */
   readonly count: number;
   /** The resolver object, `0x` and eight hex digits. */
   readonly resolver: string;
@@ -40,19 +61,17 @@ function keyHash(text: string): string {
 }
 
 /**
- * Returns the key of `resources` that maps to `system`, the entries keyed by hash.
+ * Returns the key of `resources` that maps to `system`, the systems keyed by key hash.
  *
  * If no key maps to it, returns a fresh key named after the last segment of the system's path,
  * numbered from 2 if another system holds that name.
  */
 export function resolverKey(
-  resources: ReadonlyMap<string, BinRow>,
+  resources: ReadonlyMap<string, { readonly hash: string }>,
   system: VfxObject,
 ): ResolverKey {
-  for (const [hash, row] of resources) {
-    if (row.value.type === "objectLink" && row.value.hash === system.entry) {
-      return { text: hash, hash, fresh: false };
-    }
+  for (const [hash, target] of resources) {
+    if (target.hash === system.entry) return { text: hash, hash, fresh: false };
   }
 
   const base = systemLeaf(system.name ?? system.entry);
@@ -63,27 +82,32 @@ export function resolverKey(
   return { text, hash: keyHash(text), fresh: true };
 }
 
+/** Returns the hash path of `field` under the struct at `holder`. */
+export function fieldPath(holder: string, field: string): string {
+  return holder === "" ? field.slice(2) : `${holder}.${field.slice(2)}`;
+}
+
 /** Returns the hash path of the `resourceMap` entry under `hash`. */
 function entryPath(hash: string): string {
   return `${EFFECT.resourceMap.slice(2)}{${hash.slice(2)}}`;
 }
 
-function link(add: IdleEffectAdd): LeafValue {
+function link(add: NewEffect): LeafValue {
   return { type: "objectLink", text: add.system };
 }
 
-/** Returns the edit of the skin's list that appends the effect, with its key and bone. */
-function effectEdit(add: IdleEffectAdd): PropertyEdit {
+/** Returns the edit of the effect list that appends the effect, with its key and bone. */
+function effectEdit(add: NewEffect): PropertyEdit {
   const at = `[${add.count}]`;
   return {
     entry: add.skin,
-    holder: "",
-    field: IDLE_EFFECTS,
+    holder: add.path.holder,
+    field: add.path.field,
     edits: [
       {
         type: "insertItem",
         path: "",
-        item: { index: add.count, key: null, class: IDLE_EFFECT_CLASS },
+        item: { index: add.count, key: null, class: add.path.class },
       },
       ...setField(at, EFFECT.key, { type: "hash", text: add.key.text }),
       ...setField(at, EFFECT.bone, { type: "string", value: add.bone }),
@@ -95,7 +119,7 @@ function effectEdit(add: IdleEffectAdd): PropertyEdit {
  * Returns `add` as one `editProperties`, which a document that saves its own bytes records as
  * one undo step. The resolver's map takes the key first if the key is fresh.
  */
-export function groupedAdd(add: IdleEffectAdd): BinEdit {
+export function groupedAdd(add: NewEffect): BinEdit {
   const effect = effectEdit(add);
   if (!add.key.fresh) return { kind: "editProperties", edits: [effect] };
 
@@ -118,7 +142,7 @@ export function groupedAdd(add: IdleEffectAdd): BinEdit {
  * the key and the effect are each an insert and then a write of each field. The game's keys and
  * effects then stay the game's. A list that holds no effect is written whole.
  */
-export function declaredAdd(add: IdleEffectAdd): BinEdit[] {
+export function declaredAdd(add: NewEffect): BinEdit[] {
   const calls: BinEdit[] = [];
   if (add.key.fresh) {
     calls.push(
@@ -138,7 +162,7 @@ export function declaredAdd(add: IdleEffectAdd): BinEdit[] {
     return calls;
   }
 
-  const list = IDLE_EFFECTS.slice(2);
+  const list = fieldPath(add.path.holder, add.path.field);
   const item = `${list}[${add.count}]`;
   const write = (field: string, value: LeafValue): BinEdit => ({
     kind: "editProperty",
@@ -152,7 +176,7 @@ export function declaredAdd(add: IdleEffectAdd): BinEdit[] {
       kind: "insertItem",
       entry: add.skin,
       path: list,
-      item: { index: add.count, key: null, class: IDLE_EFFECT_CLASS },
+      item: { index: add.count, key: null, class: add.path.class },
     },
     write(EFFECT.key, { type: "hash", text: add.key.text }),
     write(EFFECT.bone, { type: "string", value: add.bone }),

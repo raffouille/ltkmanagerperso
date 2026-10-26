@@ -29,43 +29,49 @@ pub type ObjectReferenceGeneration = Generation<line::References>;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BuildTicket(u64);
 
-/// What [`ObjectIndexState`] holds right now, for a search to answer from.
+/// What an [`IndexState`] holds right now, for a search to answer from.
 ///
 /// `E` is the shape a failed build is kept in, which the shell chooses so a
 /// failure crosses IPC as it does everywhere else.
 #[derive(Debug, Clone)]
-pub enum ObjectIndexSnapshot<E> {
+pub enum IndexSnapshot<T, E> {
     /// Nothing has warmed the index, or the switch that gates it is off.
     Absent,
     /// A build is running.
     Building,
     /// The index, shared rather than locked.
-    Ready(Arc<ObjectIndex>),
+    Ready(Arc<T>),
     /// The last build failed, and the next warm retries it.
     Failed(E),
 }
 
+/// What [`ObjectIndexState`] holds.
+pub type ObjectIndexSnapshot<E> = IndexSnapshot<ObjectIndex, E>;
+
 #[derive(Debug)]
-enum Slot<E> {
+enum Slot<T, E> {
     Absent,
     Building(BuildTicket),
-    Ready(Arc<ObjectIndex>),
+    Ready(Arc<T>),
     Failed(E),
 }
 
-/// The app-managed [`ObjectIndex`], in one of four slots.
+/// One app-managed index, in one of four slots.
 ///
 /// Absent until something warms it, building while one does, and then ready
 /// or failed. A build claims a ticket, and a result arriving after a clear or
 /// under an older ticket is dropped, so a Rebuild or a switch-off mid-build
 /// never lands an index nobody asked for.
 #[derive(Debug)]
-pub struct ObjectIndexState<E> {
-    slot: Mutex<Slot<E>>,
+pub struct IndexState<T, E> {
+    slot: Mutex<Slot<T, E>>,
     ticket: AtomicU64,
 }
 
-impl<E> Default for ObjectIndexState<E> {
+/// The app-managed [`ObjectIndex`].
+pub type ObjectIndexState<E> = IndexState<ObjectIndex, E>;
+
+impl<T, E> Default for IndexState<T, E> {
     fn default() -> Self {
         Self {
             slot: Mutex::new(Slot::Absent),
@@ -74,7 +80,7 @@ impl<E> Default for ObjectIndexState<E> {
     }
 }
 
-impl<E: Clone> ObjectIndexState<E> {
+impl<T, E: Clone> IndexState<T, E> {
     /// Claim the state for a build, or `None` when one is running or done.
     ///
     /// A failed slot is claimed again, so the next warm retries it.
@@ -96,10 +102,10 @@ impl<E: Clone> ObjectIndexState<E> {
     }
 
     /// Land a build's result, unless the state stopped waiting on it.
-    pub fn finish(&self, ticket: BuildTicket, built: Result<ObjectIndex, E>) {
+    pub fn finish(&self, ticket: BuildTicket, built: Result<T, E>) {
         let mut slot = self.slot.lock();
         if !matches!(*slot, Slot::Building(current) if current == ticket) {
-            tracing::debug!("Dropping an object index build the state stopped waiting on");
+            tracing::debug!("Dropping an index build the state stopped waiting on");
             return;
         }
         *slot = match built {
@@ -117,23 +123,13 @@ impl<E: Clone> ObjectIndexState<E> {
 
     /// What the state holds, with the index shared rather than locked.
     #[must_use]
-    pub fn snapshot(&self) -> ObjectIndexSnapshot<E> {
+    pub fn snapshot(&self) -> IndexSnapshot<T, E> {
         let slot = self.slot.lock();
         match &*slot {
-            Slot::Absent => ObjectIndexSnapshot::Absent,
-            Slot::Building(_) => ObjectIndexSnapshot::Building,
-            Slot::Ready(index) => ObjectIndexSnapshot::Ready(Arc::clone(index)),
-            Slot::Failed(error) => ObjectIndexSnapshot::Failed(error.clone()),
-        }
-    }
-
-    /// Replace a ready index with `rename` of it, and leave any other slot alone.
-    ///
-    /// For a hashtable sync, which changes the names and not the rows.
-    pub fn rename(&self, rename: impl FnOnce(&ObjectIndex) -> ObjectIndex) {
-        let mut slot = self.slot.lock();
-        if let Slot::Ready(index) = &*slot {
-            *slot = Slot::Ready(Arc::new(rename(index)));
+            Slot::Absent => IndexSnapshot::Absent,
+            Slot::Building(_) => IndexSnapshot::Building,
+            Slot::Ready(index) => IndexSnapshot::Ready(Arc::clone(index)),
+            Slot::Failed(error) => IndexSnapshot::Failed(error.clone()),
         }
     }
 }

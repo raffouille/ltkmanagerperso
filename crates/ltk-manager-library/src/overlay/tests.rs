@@ -59,3 +59,37 @@ fn a_workshop_test_keeps_base_on() {
     assert!(!project.is_layer_active("extras"));
     assert!(WorkshopTestProject::all_layers("project").is_layer_active("extras"));
 }
+
+#[test]
+fn clear_overlay_builds_removes_artifacts_and_builtin_projects() {
+    let storage = tempfile::tempdir().unwrap();
+    let (library, config) = make_test_library(storage.path());
+    let profile = storage.path().join("profiles/default");
+    fs_err::create_dir_all(profile.join("overlay/DATA")).unwrap();
+    fs_err::write(profile.join("overlay.json"), b"{}").unwrap();
+    fs_err::write(profile.join("game_index.bin"), b"x").unwrap();
+    fs_err::create_dir_all(storage.path().join("builtin/ward-skins")).unwrap();
+
+    library.clear_overlay_builds(&config).unwrap();
+
+    assert!(profile.is_dir());
+    assert!(!profile.join("overlay").exists());
+    assert!(!profile.join("overlay.json").exists());
+    assert!(!profile.join("game_index.bin").exists());
+    assert!(!storage.path().join("builtin").exists());
+}
+
+#[test]
+fn overlay_leftovers_lists_root_artifacts_and_clear_removes_them() {
+    let storage = tempfile::tempdir().unwrap();
+    let (library, config) = make_test_library(storage.path());
+    fs_err::write(storage.path().join("game_index.bin"), b"x").unwrap();
+    fs_err::create_dir_all(storage.path().join("profiles/default/overlay")).unwrap();
+
+    let leftovers = library.overlay_leftovers(&config).unwrap();
+    assert_eq!(leftovers, [storage.path().join("game_index.bin")]);
+
+    library.clear_overlay_leftovers(&config).unwrap();
+    assert!(library.overlay_leftovers(&config).unwrap().is_empty());
+    assert!(storage.path().join("profiles/default/overlay").is_dir());
+}

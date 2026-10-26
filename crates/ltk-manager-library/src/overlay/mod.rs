@@ -10,7 +10,7 @@ mod build;
 pub mod builtin_mods;
 mod resolve;
 
-pub(crate) use artifacts::OverlayStorageExt;
+pub(crate) use artifacts::{BUILD_VERSION_MARKER, OverlayStorageExt};
 pub use build::{OverlayBuildInputs, OverlayBuildOutcome, build_overlay};
 pub use builtin_mods::{
     ForcibleMapSkin, MapDecoration, champion_skins, forcible_map_skins, map_decorations,
@@ -19,6 +19,7 @@ pub(crate) use resolve::{resolve_blocked_wads, resolve_string_override_mode};
 
 use crate::mods::ModLibrary;
 use crate::mods::StorageLayout as _;
+use fs_err as fs;
 use ltk_manager_base::config::Config;
 use ltk_manager_base::error::{AppResult, Utf8PathExt};
 use ltk_manager_base::events::BackendEvent;
@@ -67,6 +68,65 @@ pub struct OverlayBuild {
 }
 
 impl ModLibrary {
+    /// Removes the overlay artifacts of every profile and the projects of the built-in mods.
+    ///
+    /// The next build regenerates them. Holds the overlay lock, so no build runs meanwhile.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the storage directory cannot be resolved. A path that resists removal is logged
+    /// and skipped.
+    pub fn clear_overlay_builds(&self, config: &Config) -> AppResult<()> {
+        let _building = self.overlay_lock().lock();
+        let storage_dir = self.storage_dir(config)?;
+
+        if let Ok(entries) = fs::read_dir(storage_dir.profiles_dir()) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    artifacts::purge_overlay_artifacts(&path, true);
+                }
+            }
+        }
+
+        let builtin = storage_dir.builtin_dir();
+        if builtin.is_dir()
+            && let Err(e) = fs::remove_dir_all(&builtin)
+        {
+            tracing::warn!("Failed to remove {}: {}", builtin.display(), e);
+        }
+
+        storage_dir.invalidate_overlays_on_next_build();
+        Ok(())
+    }
+
+    /// Returns the overlay artifacts that a build wrote at the root of the storage directory.
+    ///
+    /// A build writes under `profiles/`, so an artifact at the root is a leftover.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the storage directory cannot be resolved.
+    pub fn overlay_leftovers(&self, config: &Config) -> AppResult<Vec<PathBuf>> {
+        let storage_dir = self.storage_dir(config)?;
+        Ok(artifacts::overlay_artifacts(&storage_dir, true)
+            .into_iter()
+            .filter(|path| path.exists())
+            .collect())
+    }
+
+    /// Removes the leftovers that [`overlay_leftovers`](Self::overlay_leftovers) lists.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the storage directory cannot be resolved. A path that resists removal is logged
+    /// and skipped.
+    pub fn clear_overlay_leftovers(&self, config: &Config) -> AppResult<()> {
+        let _building = self.overlay_lock().lock();
+        artifacts::purge_overlay_artifacts(&self.storage_dir(config)?, true);
+        Ok(())
+    }
+
     /// Ensure the overlay exists and is up-to-date for the current enabled mod set.
     ///
     /// Builds and returns; persisting what the build found is a separate step

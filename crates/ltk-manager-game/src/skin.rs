@@ -8,6 +8,7 @@
 
 mod colliders;
 mod dynamics;
+mod effects;
 mod shipped;
 mod tangents;
 
@@ -16,10 +17,11 @@ pub use dynamics::{
     ChainProperties, CurveKeys, ExtraJointChain, JointTree, JointTreeGroup, PoseModifier,
     ScaledCurve, Socket,
 };
+pub use effects::{EffectSystem, JointEffect, PersistentCondition};
 pub use shipped::{ShippedSkin, shipped_skin};
 pub use tangents::bake_mesh_tangents;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use ltk_hash::BinHash;
 use ltk_manager_base::hashing::named;
@@ -27,16 +29,15 @@ use ltk_meta::PropertyValueEnum;
 use ltk_meta::walk::Leaf;
 use serde::Serialize;
 
-use ltk_manager_assets::preview::AssetRef;
 use ltk_manager_bin::bin_document::{
     AssetLookup, BinDocument, BinDocumentError, Fields, Locator, RowNames, fields_of, hash_hex,
     hex, items, leaf, link, object_at, text,
 };
 pub use ltk_manager_bin::bin_document::{NamedAsset, boolean, float, struct_entries};
 
-use crate::linked::{Walk, find_linked_materials, walk_linked};
+use crate::lookup::{ObjectLookup, find_linked_materials};
 use crate::material::{MaterialPreview, linked_material};
-use crate::resolver::{EFFECT_KEY, resolver_entries};
+use effects::{effect_system, effects_in, persistent_conditions, resolver_systems};
 
 /// `SkinCharacterDataProperties.skinMeshProperties`.
 const MESH_PROPERTIES: BinHash = named("skinMeshProperties");
@@ -68,12 +69,6 @@ const ANIMATION_GRAPH: BinHash = named("animationGraphData");
 const IDLE_EFFECTS: BinHash = named("idleParticlesEffects");
 /// `SkinCharacterDataProperties.mResourceResolver`.
 const RESOURCE_RESOLVER: BinHash = named("mResourceResolver");
-/// `SkinCharacterDataProperties_CharacterIdleEffect.boneName`.
-const BONE_NAME: BinHash = named("boneName");
-/// `SkinCharacterDataProperties_CharacterIdleEffect.targetBoneName`.
-const TARGET_BONE_NAME: BinHash = named("targetBoneName");
-/// `SkinCharacterDataProperties_CharacterIdleEffect.Position`.
-const POSITION: BinHash = named("Position");
 /// `AnimationGraphData.mClipDataMap`.
 const CLIP_DATA_MAP: BinHash = named("mClipDataMap");
 /// `AnimationGraphData.mTrackDataMap`.
@@ -251,31 +246,20 @@ pub struct SkinModel {
     /// `skinAnimationProperties.animationGraphData`, `0x` and eight hex digits.
     pub animation_graph: Option<String>,
     /// `idleParticlesEffects`, in the order the skin lists them.
-    pub idle_effects: Vec<IdleEffect>,
-    /// Every effect key `mResourceResolver` maps to a system some file within reach declares.
+    pub idle_effects: Vec<JointEffect>,
+    /// `PersistentEffectConditions`, in the order the skin lists them.
+    pub persistent_conditions: Vec<PersistentCondition>,
+    /// Every effect key `mResourceResolver` maps to a system that a bin the read reached
+    /// declares, in key order.
     ///
     /// A particle event of the graph names a key of this map, and the graph is read from
     /// another file, so the map crosses with the skin for the viewport to look the key up.
-    /// [`resolve_skin`] lists the systems the document itself declares, and
-    /// [`search_linked_systems`] adds those its linked files declare.
+    /// [`ObjectLookup::skin`] reads the resolver and its systems from the bins of the lookup.
     pub effect_systems: Vec<EffectSystem>,
     /// `skinMeshProperties.rigPoseModifierData`, in the order the skin lists them.
     pub pose_modifiers: Vec<PoseModifier>,
     /// `skinMeshProperties.SocketDefinitions`, in the order the skin lists them.
     pub sockets: Vec<Socket>,
-}
-
-/// One key of the skin's resolver, and the system it stands for.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "ts", derive(specta::Type))]
-pub struct EffectSystem {
-    /// The key, `0x` and eight hex digits.
-    pub key: String,
-    /// The `VfxSystemDefinitionData` object, `0x` and eight hex digits.
-    pub system: String,
-    /// The linked file declaring the system, and none where the skin's own document does.
-    pub source: Option<AssetRef>,
 }
 
 /// One submesh a material override gives its own texture or material.
@@ -291,23 +275,6 @@ pub struct SubmeshOverride {
     pub material: Option<MaterialPreview>,
 }
 
-/// One effect a skin wears for as long as the character stands.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-#[cfg_attr(feature = "ts", derive(specta::Type))]
-pub struct IdleEffect {
-    /// `effectKey`, `0x` and eight hex digits.
-    pub effect_key: String,
-    /// The system the skin's resolver maps the key to, where this document declares it.
-    pub system: Option<String>,
-    /// `boneName`, the joint the effect rides.
-    pub bone: String,
-    /// `targetBoneName`, the joint it aims at, and empty for one that aims at none.
-    pub target_bone: String,
-    /// `Position`, the effect's offset from its joint.
-    pub position: [f32; 3],
-}
-
 /// An animation graph, as a clip table and a viewport read it.
 ///
 /// "The model" in docs/plans/animation-graph-table.md. Every list keeps the order its
@@ -316,8 +283,6 @@ pub struct IdleEffect {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(specta::Type))]
 pub struct AnimationGraph {
-    /// The linked file declaring the graph, and none where the open document does.
-    pub source: Option<AssetRef>,
     /// `mClipDataMap`.
     pub clips: Vec<GraphClip>,
     /// `mTrackDataMap`.
@@ -562,7 +527,7 @@ pub struct SyncGroup {
 ///
 /// Fails with [`BinDocumentError::NodeNotFound`] where `entry` is no object of the
 /// document.
-pub fn resolve_skin(
+pub(crate) fn resolve_skin(
     document: &BinDocument,
     entry: BinHash,
     names: &dyn RowNames,
@@ -611,15 +576,12 @@ pub fn resolve_skin(
         animation_graph: fields_of(skin.get(&ANIMATION_PROPERTIES))
             .and_then(|animation| link(animation.get(&ANIMATION_GRAPH)))
             .map(hex),
-        idle_effects: idle_effects(document, skin, &systems),
+        idle_effects: effects_in(skin.get(&IDLE_EFFECTS)),
+        persistent_conditions: persistent_conditions(skin),
         effect_systems: systems
             .iter()
             .filter(|(_, system)| document.object_at(*system).is_some())
-            .map(|(key, system)| EffectSystem {
-                key: hex(*key),
-                system: hex(*system),
-                source: None,
-            })
+            .map(|(key, system)| effect_system(*key, *system, names))
             .collect(),
         pose_modifiers: dynamics::pose_modifiers(mesh, &locator),
         sockets: dynamics::sockets(mesh, &locator),
@@ -628,14 +590,11 @@ pub fn resolve_skin(
 
 /// The animation graph at `entry`: its clips of every kind, and the maps they key into.
 ///
-/// `source` is none, which is the open document. A caller that found the graph through
-/// a link sets it.
-///
 /// # Errors
 ///
 /// Fails with [`BinDocumentError::NodeNotFound`] where `entry` is no object of the
 /// document.
-pub fn resolve_graph(
+pub(crate) fn resolve_graph(
     document: &BinDocument,
     entry: BinHash,
     names: &dyn RowNames,
@@ -725,7 +684,6 @@ pub fn resolve_graph(
         .collect();
 
     Ok(AnimationGraph {
-        source: None,
         clips,
         tracks,
         masks,
@@ -983,214 +941,65 @@ fn u32_of(value: Option<&PropertyValueEnum>) -> u32 {
     }
 }
 
-/// Where an animation graph is: in the document read, or in a file it links.
-#[derive(Debug, Clone, PartialEq)]
-pub enum GraphRead {
-    /// The document declares the graph.
-    Found(AnimationGraph),
-    /// The document declares no graph under the entry, and these are the files it links
-    /// that this machine holds, in the order the header lists them.
-    Linked(Vec<AssetRef>),
-}
+impl ObjectLookup<'_> {
+    /// Resolves the skin object at `entry` of the open bin, with its materials, its resolver and
+    /// its effect systems read from the first bin of the lookup that declares each.
+    ///
+    /// A skin keeps its particle systems and its resolver in the bins it links as often as in
+    /// its own. A material or a system that no bin of the lookup declares is skipped: the
+    /// material stays missing, and the key is left out of [`SkinModel::effect_systems`].
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`BinDocumentError::NodeNotFound`] if `entry` is no object of the open bin.
+    pub fn skin(&mut self, entry: BinHash) -> Result<SkinModel, BinDocumentError> {
+        let open = self.open();
+        let mut model = resolve_skin(open, entry, self.names(), self.assets(), self.shaders())?;
 
-/// The graph at `entry`, or the linked files to look for it in.
-///
-/// A skin's graph is usually declared in the animations bin its own file links, which is
-/// where the engine resolves it from too, so the links are looked in before the object
-/// index is needed.
-///
-/// # Errors
-///
-/// Fails as [`resolve_graph`] does, which it only calls for an entry the document holds.
-pub fn graph_at(
-    document: &BinDocument,
-    entry: BinHash,
-    names: &dyn RowNames,
-    assets: &dyn AssetLookup,
-) -> Result<GraphRead, BinDocumentError> {
-    if document.object_at(entry).is_some() {
-        return resolve_graph(document, entry, names, assets).map(GraphRead::Found);
-    }
-    Ok(GraphRead::Linked(
-        document
-            .dependencies()
-            .iter()
-            .filter_map(|path| assets.locate(path))
-            .collect(),
-    ))
-}
-
-/// The graph at `entry`, looked for in `linked` and in what each file links.
-///
-/// Breadth first, each file's links in the order its header lists them, so the file
-/// nearest the skin wins. `read` answers a file's document, and none for one it cannot
-/// read, which is passed over. A file reached twice is read once. The graph's `source`
-/// is the file it was found in.
-///
-/// # Errors
-///
-/// Fails with [`BinDocumentError::NodeNotFound`] where no file within reach declares the
-/// graph.
-pub fn search_linked(
-    linked: Vec<AssetRef>,
-    entry: BinHash,
-    names: &dyn RowNames,
-    assets: &dyn AssetLookup,
-    read: &mut dyn FnMut(&AssetRef) -> Option<BinDocument>,
-) -> Result<AnimationGraph, BinDocumentError> {
-    let mut found = None;
-    walk_linked(linked, assets, read, &mut |asset, document| {
-        if document.object_at(entry).is_none() {
-            return Walk::On;
-        }
-        found = Some(
-            resolve_graph(document, entry, names, assets).map(|mut graph| {
-                graph.source = Some(asset.clone());
-                graph
-            }),
-        );
-        Walk::Done
-    });
-    found.unwrap_or_else(|| {
-        Err(BinDocumentError::NodeNotFound {
-            address: format!("{}:", hex(entry)),
-        })
-    })
-}
-
-/// The materials of `model` no document within reach declared, looked for in `linked`
-/// and in what each file links.
-///
-/// A skin's materials are in its own file for all but the few a merged CAC bin declares,
-/// and those the skin reaches through its links, as [`search_linked`] reaches a graph.
-/// Every link a material has stays missing where the walk ends first. `shaders` is the
-/// defs [`resolve_skin`] took.
-pub fn search_linked_materials(
-    model: &mut SkinModel,
-    linked: Vec<AssetRef>,
-    names: &dyn RowNames,
-    assets: &dyn AssetLookup,
-    shaders: Option<&BinDocument>,
-    read: &mut dyn FnMut(&AssetRef) -> Option<BinDocument>,
-) {
-    let missing: Vec<&mut MaterialPreview> = model
-        .material
-        .iter_mut()
-        .chain(
-            model
-                .overrides
-                .iter_mut()
-                .filter_map(|o| o.material.as_mut()),
-        )
-        .collect();
-    find_linked_materials(missing, linked, names, assets, shaders, read);
-}
-
-/// The systems the skin's resolver maps that `document` does not declare, looked for in
-/// `linked` and in what each file links, and added to `model` with the file each was
-/// found in.
-///
-/// A skin keeps its particle systems in a file of their own as often as in its own, and
-/// the resolver links neither, so they are reached as [`search_linked`] reaches a graph.
-/// `document` is the one [`resolve_skin`] read `model` from and `entry` its skin object.
-/// A key no file within reach declares a system for is left out.
-pub fn search_linked_systems(
-    model: &mut SkinModel,
-    document: &BinDocument,
-    entry: BinHash,
-    linked: Vec<AssetRef>,
-    assets: &dyn AssetLookup,
-    read: &mut dyn FnMut(&AssetRef) -> Option<BinDocument>,
-) {
-    let Some(skin) = document.object_at(entry) else {
-        return;
-    };
-    let held: HashSet<&str> = model
-        .effect_systems
-        .iter()
-        .map(|e| e.key.as_str())
-        .collect();
-    let mut missing: Vec<(BinHash, BinHash)> =
-        resolver_systems(document, link(skin.properties.get(&RESOURCE_RESOLVER)))
-            .into_iter()
-            .filter(|(key, _)| !held.contains(hex(*key).as_str()))
+        let missing: Vec<&mut MaterialPreview> = model
+            .material
+            .iter_mut()
+            .chain(
+                model
+                    .overrides
+                    .iter_mut()
+                    .filter_map(|o| o.material.as_mut()),
+            )
             .collect();
-    if missing.is_empty() {
-        return;
-    }
-    let mut found = Vec::new();
-    walk_linked(linked, assets, read, &mut |asset, document| {
-        missing.retain(|(key, system)| {
-            if document.object_at(*system).is_none() {
-                return true;
-            }
-            found.push(EffectSystem {
-                key: hex(*key),
-                system: hex(*system),
-                source: Some(asset.clone()),
-            });
-            false
-        });
-        if missing.is_empty() {
-            Walk::Done
-        } else {
-            Walk::On
-        }
-    });
-    model.effect_systems.extend(found);
-    model.effect_systems.sort_by(|a, b| a.key.cmp(&b.key));
-}
+        find_linked_materials(missing, self);
 
-/// The skin's idle effects, each with the system its key resolves to out of `systems`,
-/// where `document` declares it.
-fn idle_effects(
-    document: &BinDocument,
-    skin: &Fields,
-    systems: &[(BinHash, BinHash)],
-) -> Vec<IdleEffect> {
-    items(skin.get(&IDLE_EFFECTS))
-        .iter()
-        .filter_map(|item| {
-            let fields = fields_of(Some(item))?;
-            let key = match leaf(fields.get(&EFFECT_KEY)) {
-                Some(Leaf::Hash(key)) => key.try_as_bin_hash().unwrap_or(BinHash(0)),
-                _ => BinHash(0),
-            };
-            Some(IdleEffect {
-                effect_key: hex(key),
-                system: systems
-                    .iter()
-                    .find(|(each, _)| *each == key)
-                    .filter(|(_, system)| document.object_at(*system).is_some())
-                    .map(|(_, system)| hex(*system)),
-                bone: text(fields.get(&BONE_NAME)).unwrap_or_default().to_owned(),
-                target_bone: text(fields.get(&TARGET_BONE_NAME))
-                    .unwrap_or_default()
-                    .to_owned(),
-                position: match leaf(fields.get(&POSITION)) {
-                    Some(Leaf::Vector3(position)) => position.to_array(),
-                    _ => [0.0; 3],
-                },
-            })
-        })
-        .collect()
-}
+        let resolver = object_at(open, entry)
+            .ok()
+            .and_then(|skin| link(skin.properties.get(&RESOURCE_RESOLVER)));
+        let mapped = match resolver.and_then(|resolver| self.find(resolver)) {
+            Some(found) => resolver_systems(self.document(found), resolver),
+            None => Vec::new(),
+        };
+        let names = self.names();
+        model.effect_systems = mapped
+            .into_iter()
+            .filter(|(_, system)| self.find(*system).is_some())
+            .map(|(key, system)| effect_system(key, system, names))
+            .collect();
 
-/// The effect keys the resolver object `resolver` maps, each with the system it names, in
-/// key order.
-///
-/// The first entry for a key wins, which is the order the engine probes a map in.
-fn resolver_systems(document: &BinDocument, resolver: Option<BinHash>) -> Vec<(BinHash, BinHash)> {
-    let mut systems = HashMap::new();
-    let Some(resolver) = resolver.and_then(|resolver| document.object_at(resolver)) else {
-        return Vec::new();
-    };
-    for (key, target) in resolver_entries(resolver) {
-        systems.entry(key).or_insert(target);
+        Ok(model)
     }
-    let mut mapped: Vec<(BinHash, BinHash)> = systems.into_iter().collect();
-    mapped.sort_by_key(|(key, _)| key.0);
-    mapped
+
+    /// Resolves the animation graph at `entry` from the first bin of the lookup that declares
+    /// it.
+    ///
+    /// A skin's graph is usually declared in the animations bin that its own file links, which
+    /// is where the engine resolves it from too.
+    ///
+    /// # Errors
+    ///
+    /// As `resolve_graph`, against the bin that declares `entry`. Fails with
+    /// [`BinDocumentError::NodeNotFound`] if no bin of the lookup declares it.
+    pub fn graph(&mut self, entry: BinHash) -> Result<AnimationGraph, BinDocumentError> {
+        let found = self.find(entry);
+        let document = found.map_or(self.open(), |found| self.document(found));
+        resolve_graph(document, entry, self.names(), self.assets())
+    }
 }
 
 /// The submesh names `initialSubmeshToHide` lists, apart on spaces and commas.

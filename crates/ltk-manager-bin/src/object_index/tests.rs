@@ -6,9 +6,7 @@ use super::*;
 use fs_err as fs;
 use ltk_hash::Hash as _;
 use ltk_hashdb::LayeredHashDb;
-use ltk_manager_assets::game_index::GameIndex;
-use ltk_manager_assets::game_wads::GameArchives;
-use ltk_manager_assets::hashtables::ObjectNames;
+use ltk_manager_assets::game_wads::{ChunkPaths, GameArchives};
 use ltk_meta::path::PropertyPath;
 use ltk_meta::property::values;
 use ltk_meta::{Bin, BinObject, BinOverride, PropertyPatch};
@@ -104,17 +102,38 @@ fn resolver_for(paths: &[&str]) -> LayeredHashDb {
     }
     resolver
 }
-/// The object index over `wads`, built on `workers` threads, with no names.
+/// The object index over `wads`, built on `workers` threads, naming its chunks alone.
 fn build(wads: &[(&str, &[Chunk<'_>])], workers: usize) -> (TempDir, ObjectIndex) {
+    build_named(wads, workers, TestNames::over(&[], &[]))
+}
+
+/// The object index over `wads`, built on `workers` threads, named by `names` and by the
+/// chunk paths of `wads`.
+fn build_named(
+    wads: &[(&str, &[Chunk<'_>])],
+    workers: usize,
+    names: TestNames,
+) -> (TempDir, ObjectIndex) {
     let tmp = game_with(wads);
     let archives = GameArchives::at(tmp.path());
-    let game = GameIndex::build(&archives, &resolver_for(&paths_of(wads))).unwrap();
-    let index = ObjectIndex::build(&game, &archives, workers, &|| false).unwrap();
+    let chunks = archives.chunk_index(None).unwrap();
+    let paths = paths_of(wads);
+    let resolver = resolver_for(&paths);
+    let names = names.with_files(&paths);
+    let index = ObjectIndex::build(
+        &chunks,
+        &ChunkPaths(&resolver),
+        &names,
+        workers,
+        &|| false,
+        None,
+    )
+    .unwrap();
     (tmp, index)
 }
 /// Each row as `(object path, class name, declaring file)`, in row order.
 fn declared(index: &ObjectIndex) -> Vec<(BinHash, BinHash, String)> {
-    index.rows().collect()
+    index.test_rows().collect()
 }
 fn row(object: &str, class: &str, file: &str) -> (BinHash, BinHash, String) {
     (
@@ -146,42 +165,50 @@ impl TestNames {
 
     /// The same names, with `paths` naming declaring chunks too.
     fn with_files(mut self, paths: &[&str]) -> Self {
-        self.files = paths
-            .iter()
-            .map(|path| (WadHash::hash_str(path), (*path).to_owned()))
-            .collect();
+        self.files.extend(
+            paths
+                .iter()
+                .map(|path| (WadHash::hash_str(path), (*path).to_owned())),
+        );
         self
     }
 }
-impl ObjectNames for TestNames {
-    fn for_each_entry(&self, hashes: &[BinHash], visit: &mut dyn FnMut(usize, &str)) {
-        for (at, hash) in hashes.iter().enumerate() {
-            if let Some(name) = self.entries.get(hash) {
-                visit(at, name);
-            }
-        }
+impl NameSource for TestNames {
+    fn version(&self, _table: NameTable) -> Option<String> {
+        None
     }
 
-    fn class(&self, hash: BinHash) -> Option<String> {
-        self.classes.get(&hash).cloned()
-    }
-
-    fn for_each_file(&self, hashes: &[WadHash], visit: &mut dyn FnMut(usize, &str)) {
-        for (at, hash) in hashes.iter().enumerate() {
-            if let Some(path) = self.files.get(hash) {
-                visit(at, path);
+    fn for_each_name(&self, table: NameTable, visit: &mut dyn FnMut(u64, &str)) {
+        match table {
+            NameTable::Entries => {
+                for (hash, name) in &self.entries {
+                    visit(u64::from(hash.0), name);
+                }
             }
+            NameTable::Types => {
+                for (hash, name) in &self.classes {
+                    visit(u64::from(hash.0), name);
+                }
+            }
+            NameTable::Chunks => {
+                for (hash, path) in &self.files {
+                    visit(hash.0, path);
+                }
+            }
+            _ => {}
         }
     }
 }
 /// An index over `objects` as `(object path, class)`, all in one file, named.
 fn named_index(objects: &[(&str, &str)]) -> (TempDir, ObjectIndex) {
     let chunks: &[Chunk<'_>] = &[("data/objects.bin", prop(objects))];
-    let (tmp, index) = build(&[("Objects.wad.client", chunks)], 1);
     let paths: Vec<&str> = objects.iter().map(|(path, _)| *path).collect();
     let classes: Vec<&str> = objects.iter().map(|(_, class)| *class).collect();
-    let index = index.named(&TestNames::over(&paths, &classes));
-    (tmp, index)
+    build_named(
+        &[("Objects.wad.client", chunks)],
+        1,
+        TestNames::over(&paths, &classes),
+    )
 }
 /// The object path of each hit, in the order the search ranked them.
 fn ranked(index: &ObjectIndex, query: &str) -> Vec<String> {

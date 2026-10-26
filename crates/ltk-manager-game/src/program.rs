@@ -15,6 +15,7 @@ use ltk_manager_base::hashing::named;
 use ltk_manager_bin::bin_document::{AssetLookup, BinDocument, RowNames, object_at};
 use serde::{Deserialize, Serialize};
 
+use crate::lookup::{Declared, ObjectLookup};
 use crate::material::MaterialWarning;
 use crate::material::pass::{
     Define, DefineSource, MaterialKind, PassState, PassTexture, ResolvedMaterial, ResolvedPass,
@@ -296,6 +297,87 @@ pub struct Resolution<'a> {
     /// `data/shaders/shaders.bin`, without which no pass has a shader path and every
     /// program fails.
     pub shaders: Option<&'a BinDocument>,
+}
+
+/// A material that a program read names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProgramTarget {
+    /// The material declared as the object.
+    Object(BinHash),
+    /// The material embedded at the property path `path` under the object `entry`.
+    Embedded { entry: BinHash, path: String },
+}
+
+impl ProgramTarget {
+    /// The object the material is declared under.
+    fn entry(&self) -> BinHash {
+        match self {
+            Self::Object(entry) | Self::Embedded { entry, .. } => *entry,
+        }
+    }
+}
+
+impl ObjectLookup<'_> {
+    /// Returns what a program read of the bin at `found` resolves against.
+    pub fn resolution(&self, found: Declared) -> Resolution<'_> {
+        Resolution {
+            document: self.document(found),
+            names: self.names(),
+            assets: self.assets(),
+            shaders: self.shaders(),
+        }
+    }
+
+    /// Reads the programs of `targets`, one for one and in that order, each from the first bin
+    /// of the lookup that declares its entry.
+    ///
+    /// The answer is none where no bin of the lookup declares the entry or an embedded path
+    /// reaches no struct. `read` answers asset bytes as [`read_programs`] reads them.
+    pub fn programs(
+        &mut self,
+        targets: &[ProgramTarget],
+        options: ProgramOptions,
+        translations: &TranslationCache,
+        read: &mut dyn FnMut(&AssetRef) -> AppResult<Vec<u8>>,
+    ) -> Vec<Option<MaterialProgram>> {
+        let places: Vec<Option<Declared>> = targets
+            .iter()
+            .map(|target| self.find(target.entry()))
+            .collect();
+        let mut bins: Vec<Declared> = Vec::new();
+        for found in places.iter().flatten() {
+            if !bins.contains(found) {
+                bins.push(*found);
+            }
+        }
+
+        let mut programs = vec![None; targets.len()];
+        for found in bins {
+            let resolution = self.resolution(found);
+            let at: Vec<usize> = (0..targets.len())
+                .filter(|index| places[*index] == Some(found))
+                .collect();
+            let objects: Vec<BinHash> = at
+                .iter()
+                .filter_map(|index| match &targets[*index] {
+                    ProgramTarget::Object(entry) => Some(*entry),
+                    ProgramTarget::Embedded { .. } => None,
+                })
+                .collect();
+
+            let mut read_objects =
+                read_programs(resolution, &objects, options, translations, read).into_iter();
+            for index in at {
+                programs[index] = match &targets[index] {
+                    ProgramTarget::Object(_) => read_objects.next().flatten(),
+                    ProgramTarget::Embedded { entry, path } => {
+                        read_embedded_program(resolution, *entry, path, options, translations, read)
+                    }
+                };
+            }
+        }
+        programs
+    }
 }
 
 /// The programs of the materials `entries` name, one for one and in that order, none

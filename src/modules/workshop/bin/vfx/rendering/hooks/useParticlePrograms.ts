@@ -14,7 +14,6 @@ import { useDisposable } from "@/hooks";
 import {
   api,
   type AppError,
-  type AssetRef,
   type BinDocumentId,
   type MaterialProgram,
   type PassProgram,
@@ -64,21 +63,15 @@ export const particleQueries = {
       retry: false,
     }),
   /**
-   * An emitter's custom material with its passes translated, read from the file that
-   * declares it, or from `document` where the system's bin declares it.
+   * An emitter's custom material with its passes translated, read through `document`, which
+   * reaches a material that a linked bin declares.
    */
-  material: (document: BinDocumentId | null, hash: string | null, file: AssetRef | null) =>
+  material: (document: BinDocumentId | null, hash: string | null) =>
     queryOptions<MaterialProgram | null, AppError>({
-      queryKey: ["particle-material", document, hash, file],
+      queryKey: ["particle-material", document, hash],
       queryFn: async () => {
-        const source =
-          file !== null
-            ? ({ kind: "file", asset: file, document } as const)
-            : document !== null
-              ? ({ kind: "document", document } as const)
-              : null;
-        if (hash === null || source === null) return null;
-        const read = await api.bin.readMaterialPrograms(source, [hash], {
+        if (hash === null || document === null) return null;
+        const read = await api.bin.readMaterialPrograms({ kind: "document", document }, [hash], {
           lowQuality: false,
         });
         return unwrapForQuery(read)[0] ?? null;
@@ -315,7 +308,7 @@ function useCustomPasses(
   enabled: boolean,
 ): readonly SubmeshProgram[] {
   const preview = enabled ? emitter.customMaterial : null;
-  return useMaterialPasses(document, preview?.hash ?? null, preview?.source ?? null).passes;
+  return useMaterialPasses(document, preview?.hash ?? null).passes;
 }
 
 /** A material's read and its passes ready to draw, per `particleQueries.material`. */
@@ -330,10 +323,9 @@ export interface MaterialPasses {
 export function useMaterialPasses(
   document: BinDocumentId | null,
   hash: string | null,
-  file: AssetRef | null,
 ): MaterialPasses {
   const query = useQuery({
-    ...particleQueries.material(document, hash, file),
+    ...particleQueries.material(document, hash),
     enabled: hash !== null,
   });
   return {

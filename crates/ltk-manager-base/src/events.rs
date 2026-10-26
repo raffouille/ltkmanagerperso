@@ -239,6 +239,31 @@ impl From<ltk_mod_project::ImportProgress<'_>> for FantomeImportProgress {
     }
 }
 
+/// Stage of a move of the data directory to another folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum DataMoveStage {
+    /// The entries are being renamed or copied into the new folder.
+    Moving,
+    /// The entries are in the new folder and the app restarts on the new location.
+    Restarting,
+}
+
+/// Progress of a move of the data directory to another folder.
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(feature = "ts", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct DataMoveProgress {
+    pub stage: DataMoveStage,
+    /// Name of the entry being moved, under the data directory.
+    pub current_entry: Option<String>,
+    /// Bytes moved so far.
+    pub moved: u64,
+    /// Bytes that the whole move carries.
+    pub total: u64,
+}
+
 /// Progress of a hashtable sync, as its tables stream in.
 ///
 /// Every figure describes the whole run rather than the table in flight, so a
@@ -434,6 +459,8 @@ declare_events! {
     SessionEnded(SessionEnded) => "session-ended",
     /// A hashtable sync advanced. Throttled by its emitter.
     HashtableSyncProgress(HashtableSyncProgress) => "hashtable-sync-progress",
+    /// A move of the data directory advanced. Throttled by its emitter.
+    DataMoveProgress(DataMoveProgress) => "data-move-progress",
     /// An extract of game chunks to disk advanced. Throttled by its emitter.
     ExtractProgress(ExtractProgress) => "extract-progress",
     /// A walk of the bins for references advanced. Throttled by its emitter.

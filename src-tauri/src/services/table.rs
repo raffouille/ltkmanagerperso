@@ -188,6 +188,8 @@ services! {
         read_clip_header,
         bake_skin_tangents,
         save_skin_colliders,
+        // Objects
+        locate_object,
         // Spells and VFX
         read_spell,
         read_vfx_system,
@@ -207,6 +209,12 @@ services! {
         list_forcible_map_skins,
         list_map_decorations,
         list_champion_skins,
+        export_settings,
+        read_settings_backup,
+        plan_data_move,
+        move_data,
+        data_usage,
+        clear_data_area,
     }
     patcher("patcher") {
         start_patcher,

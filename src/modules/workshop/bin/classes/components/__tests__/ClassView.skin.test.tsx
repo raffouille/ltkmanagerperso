@@ -98,6 +98,7 @@ const ROOTS: BinRow[] = [
   field("skinAnimationProperties", embed("SkinAnimationProperties", 1)),
   field("idleParticlesEffects", list(2)),
   field("mResourceResolver", link(RESOLVER, null)),
+  field("PersistentEffectConditions", { type: "container", len: 1, itemKind: "pointer" }),
   field("skinAudioProperties", embed("SkinAudioProperties", 1)),
   field("healthBarData", embed("CharacterHealthBarDataRecord", 0)),
   field("armorMaterial", { type: "string", value: "Stone" }),
@@ -112,6 +113,12 @@ const EFFECTS = at("idleParticlesEffects");
 const EFFECT = `${EFFECTS}[0]`;
 const NAMED_EFFECT = `${EFFECTS}[1]`;
 const RESOURCE_MAP = at("resourceMap");
+const CONDITIONS = at("PersistentEffectConditions");
+const CONDITION = `${CONDITIONS}[0]`;
+const OWNER = `${CONDITION}.${at("OwnerCondition")}`;
+const VFXS = `${CONDITION}.${at("PersistentVfxs")}`;
+const HIDES = `${CONDITION}.${at("SubmeshesToHide")}`;
+const BUFF_PATH = "Characters/Smolder/Spells/SmolderPassiveBuff";
 
 /** Every page the projected read answers, by the entry and path it was asked under. */
 const PAGES: Record<string, BinRows> = {
@@ -193,6 +200,44 @@ const PAGES: Record<string, BinRows> = {
       type: "string",
       value: "R_Hand",
     }),
+  ]),
+  [`${ENTRY}:${CONDITIONS}`]: page([
+    row(ENTRY, CONDITION, "[0]", embed("PersistentEffectConditionData", 3), "element"),
+  ]),
+  [`${ENTRY}:${CONDITION}`]: page([
+    row(ENTRY, OWNER, "OwnerCondition", embed("HasBuffDynamicMaterialBoolDriver", 1)),
+    row(ENTRY, VFXS, "PersistentVfxs", list(1)),
+    row(ENTRY, HIDES, "SubmeshesToHide", { type: "container", len: 1, itemKind: "hash" }),
+  ]),
+  [`${ENTRY}:${OWNER}`]: page([
+    row(ENTRY, `${OWNER}.${at("Spell")}`, "Spell", {
+      type: "hash",
+      hash: nameHash(BUFF_PATH),
+      name: BUFF_PATH,
+    }),
+  ]),
+  [`${ENTRY}:${VFXS}`]: page([
+    row(ENTRY, `${VFXS}[0]`, "[0]", embed("PersistentVfxData", 2), "element"),
+  ]),
+  [`${ENTRY}:${VFXS}[0]`]: page([
+    row(ENTRY, `${VFXS}[0].${at("effectKey")}`, "effectKey", {
+      type: "hash",
+      hash: EFFECT_KEY,
+      name: null,
+    }),
+    row(ENTRY, `${VFXS}[0].${at("boneName")}`, "boneName", {
+      type: "string",
+      value: "Weapon_Heart",
+    }),
+  ]),
+  [`${ENTRY}:${HIDES}`]: page([
+    row(
+      ENTRY,
+      `${HIDES}[0]`,
+      "[0]",
+      { type: "hash", hash: nameHash("Cape"), name: null },
+      "element",
+    ),
   ]),
   [`${RESOLVER}:`]: page([
     row(RESOLVER, RESOURCE_MAP, "resourceMap", {
@@ -347,6 +392,14 @@ async function overrideGroup(): Promise<HTMLElement> {
   return group;
 }
 
+/** The first persistent condition's row, once the read has answered its driver. */
+async function conditionRow(): Promise<HTMLElement> {
+  const detail = await screen.findByText("SmolderPassiveBuff");
+  const group = detail.closest<HTMLElement>("[data-ui='ConditionRows:condition']");
+  if (group === null) throw new Error("no condition row drawn");
+  return group;
+}
+
 /** What the object pane measures, which happy-dom runs no layout to answer. */
 let paneWidth = 0;
 const measured = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
@@ -376,6 +429,7 @@ describe("ClassView over a skin", () => {
       "Clips",
       "Animation",
       "VFX",
+      "Conditions",
       "Audio",
       "Health bar",
       "Other",
@@ -497,6 +551,27 @@ describe("ClassView over a skin", () => {
     expect(header).toHaveTextContent("VFX2");
   });
 
+  it("summarizes a condition by its owner driver and counts its effects", async () => {
+    renderSkin();
+
+    const condition = await conditionRow();
+    expect(condition).toHaveTextContent("HasBuffDynamicMaterialBoolDriver");
+    expect(condition).toHaveTextContent("SmolderPassiveBuff");
+    expect(condition).toHaveTextContent("1 effect");
+  });
+
+  it("unfolds a condition to its effects and its submesh lists", async () => {
+    renderSkin();
+    const user = userEvent.setup();
+
+    const condition = await conditionRow();
+    await user.click(within(condition).getByRole("button", { name: "Show fields" }));
+
+    expect(await within(condition).findByText("Weapon_Heart")).toBeInTheDocument();
+    expect(within(condition).getByRole("button", { name: SYSTEM_PATH })).toBeInTheDocument();
+    expect(await within(condition).findByText(nameHash("Cape"))).toBeInTheDocument();
+  });
+
   it("draws what no section names as field rows", () => {
     renderSkin();
 
@@ -521,7 +596,7 @@ describe("ClassView over a skin", () => {
 
 describe("ClassView over an editable skin", () => {
   /** The edit that the last `bin_edit` of `kind` carried. */
-  function lastEdit<K extends "editProperties" | "removeItem">(kind: K) {
+  function lastEdit<K extends "editProperties" | "editProperty" | "removeItem">(kind: K) {
     const sent = mockInvoke.mock.calls
       .map(([command, args]) => sentEdit(command, args as Record<string, unknown>, kind))
       .filter((edit) => edit !== null);
@@ -572,6 +647,43 @@ describe("ClassView over an editable skin", () => {
     await user.click(remove);
 
     await vi.waitFor(() => expect(lastEdit("removeItem")).toMatchObject({ path: EFFECT }));
+  });
+
+  it("adds a condition with a HasBuff owner condition", async () => {
+    renderSkin(true);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Add condition" }));
+
+    await vi.waitFor(() => expect(lastEdit("editProperty")).toBeDefined());
+    const edit = lastEdit("editProperty");
+    expect(edit).toMatchObject({
+      entry: ENTRY,
+      holder: "",
+      field: nameHash("PersistentEffectConditions"),
+    });
+    expect(edit?.edits).toContainEqual({
+      type: "ensurePointer",
+      path: `[1].${at("OwnerCondition")}`,
+      class: "HasBuffDynamicMaterialBoolDriver",
+    });
+  });
+
+  it("removes a condition from the skin's list", async () => {
+    renderSkin(true);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Remove condition" }));
+
+    await vi.waitFor(() => expect(lastEdit("removeItem")).toMatchObject({ path: CONDITION }));
+  });
+
+  it("offers no condition edit while the view is read-only", async () => {
+    renderSkin();
+
+    await conditionRow();
+    expect(screen.queryByRole("button", { name: "Add condition" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove condition" })).toBeNull();
   });
 
   it("offers no effect edit while the view is read-only", async () => {

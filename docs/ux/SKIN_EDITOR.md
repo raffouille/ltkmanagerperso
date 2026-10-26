@@ -14,6 +14,7 @@ the plan of the pose modifiers and sockets is docs/plans/pose-dynamics-preview.m
 
 | Date       | Change                                                                   |
 | ---------- | ------------------------------------------------------------------------ |
+| 2026-10-22 | Add the Conditions section, and apply a condition in the preview         |
 | 2026-10-15 | Add, rebone and remove idle effects in the VFX section                   |
 | 2026-10-04 | Add the Skeleton and Physics panes, and simulate a skin's pose modifiers |
 | 2026-10-04 | Split out of docs/ux/BIN_EDITOR.md, with the skin's preview              |
@@ -265,6 +266,42 @@ game's keys and effects stay out of the layer.
 **A row picks its bone from the skeleton.** The bone cell is a joint combobox, and a remove
 button ends the row. A removed effect leaves its resolver key, because a clip event or a spell
 can read the same key.
+
+## The Conditions section
+
+The Conditions section lists the skin's `PersistentEffectConditions`. The engine spawns the
+effects of an entry and applies its submesh changes while its `OwnerCondition` and its
+`SourceCondition` are true, as <https://meta-wiki.leaguetoolkit.dev/classes/persistenteffectconditiondata/>
+describes.
+
+**A condition is one row.** The row holds a fold, the preview switch, the owner condition's
+class, then the source condition's after "Source", the number of effects and a remove button.
+A driver with a `Spell` shows the last segment of the spell's path, and a driver with
+`mDrivers` shows how many it holds. A condition that sets neither driver reads "Always".
+
+**The fold opens the condition.** It lists the effects as the VFX section does, with the same
+bone picker, remove button and Add effect, and the add appends to the condition's
+`PersistentVfxs`. The Show and Hide lines list `SubmeshesToShow` and `SubmeshesToHide` by the
+`.skn`'s names, each with a remove, and a picker of the submeshes that the line does not list
+yet. A hash that matches no submesh shows as its hash. The other fields, the drivers among
+them, are field rows, so a driver's class is swapped and its fields are edited as in the tree.
+
+**Add condition appends a `HasBuffDynamicMaterialBoolDriver` owner condition**, which is the
+driver most shipped conditions start from, and opens the new row. The edits follow the rules of
+the VFX section: one undo step in a file that the project holds, and narrow writes in a
+declared game bin.
+
+**The preview applies a condition by hand.** The preview does not evaluate a driver, so no
+condition is applied when the skin opens. The switch on a row draws the condition's effects on
+their joints and applies its submesh changes over the skin's own and the clip's: the show sets
+of the applied conditions are joined, and a submesh in any hide set is hidden. The Submeshes
+menu still overrides the result, and the effects switch hides the condition's effects with the
+idle effects. The choice writes nothing and lasts as long as the tab.
+
+**An effect's system is read from the file that declares it.** Most skins keep their systems in
+the shared bins they link, and a skin can map a key to another skin's system. A condition's
+effect and an idle effect resolve their key through the skin's resolver and read the system from
+the skin's own file or from a linked file, as a clip's particle event does.
 
 ## The material pane
 

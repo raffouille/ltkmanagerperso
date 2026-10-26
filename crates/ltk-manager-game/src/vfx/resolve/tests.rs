@@ -9,6 +9,7 @@ use ltk_meta::property::Kind;
 use ltk_meta::{Bin, BinObject};
 
 use super::*;
+use crate::lookup::ObjectLookup;
 use crate::resolver::RESOURCE_MAP;
 use ltk_manager_assets::preview::AssetRef;
 
@@ -107,7 +108,11 @@ fn child() -> BinObject {
 }
 
 fn document_of(objects: Vec<BinObject>) -> BinDocument {
-    let mut bin = Bin::builder();
+    document_linking(objects, &[])
+}
+
+fn document_linking(objects: Vec<BinObject>, dependencies: &[&str]) -> BinDocument {
+    let mut bin = Bin::builder().dependencies(dependencies.iter().copied());
     for object in objects {
         bin = bin.object(object);
     }
@@ -328,8 +333,62 @@ fn a_shimmer_render_components_linked_material_is_previewed() {
     assert_eq!(hashes, [hex(direct), hex(contained)]);
 }
 
+const LINKED: &str = "DATA/Characters/Glow/Glow_Shared.bin";
+
+/// Places the fixture texture as [`Placed`] does, and every bin path as a file.
+struct Linked;
+
+impl AssetLookup for Linked {
+    fn locate(&self, path: &str) -> Option<AssetRef> {
+        if path.ends_with(".bin") {
+            return Some(AssetRef::File {
+                path: path.to_lowercase(),
+            });
+        }
+        Placed.locate(path)
+    }
+}
+
+/// Resolves `SYSTEM` from an open bin of `open` that links one bin holding `linked`, and the
+/// assets that the read asked for.
+fn reached(
+    open: Vec<BinObject>,
+    linked: Vec<BinObject>,
+) -> (Result<VfxSystem, BinDocumentError>, Vec<AssetRef>) {
+    let open = document_linking(open, &[LINKED]);
+    let mut linked = Some(linked);
+    let mut asked = Vec::new();
+    let result = {
+        let mut read = |asset: &AssetRef| {
+            asked.push(asset.clone());
+            linked.take().map(document_of)
+        };
+        let names = named();
+        ObjectLookup::new(&open, &names, &Linked, None, &mut read).system(h(SYSTEM))
+    };
+    (result, asked)
+}
+
 #[test]
-fn a_custom_material_a_linked_bin_declares_is_read_there() {
+fn reachable_system_reads_from_linked_bin_declaring_it() {
+    let (resolved, asked) = reached(Vec::new(), vec![system()]);
+
+    assert_eq!(resolved.unwrap().entry, hex(h(SYSTEM)));
+    assert_eq!(asked, [Linked.locate(LINKED).unwrap()]);
+}
+
+#[test]
+fn reachable_system_not_declared_within_reach_is_not_found() {
+    let (resolved, _) = reached(Vec::new(), Vec::new());
+
+    assert!(matches!(
+        resolved,
+        Err(BinDocumentError::NodeNotFound { .. })
+    ));
+}
+
+#[test]
+fn reachable_system_reads_custom_material_from_linked_bin() {
     let material_hash = h("Materials/Linked");
     let system = BinObject::builder(h(SYSTEM), h("VfxSystemDefinitionData"))
         .property(
@@ -340,32 +399,13 @@ fn a_custom_material_a_linked_bin_declares_is_read_there() {
             ),
         )
         .build();
-    let mut resolved = resolve_system(
-        &document_of(vec![system]),
-        h(SYSTEM),
-        &named(),
-        &Placed,
-        None,
-    )
-    .unwrap();
-    assert!(resolved.materials[0].missing);
 
-    let skin = Placed::asset();
-    super::search_linked_materials(
-        &mut resolved,
-        vec![skin.clone()],
-        &named(),
-        &Placed,
-        None,
-        &mut |_| {
-            Some(document_of(vec![
-                BinObject::builder(material_hash, h("StaticMaterialDef")).build(),
-            ]))
-        },
+    let (resolved, _) = reached(
+        vec![system],
+        vec![BinObject::builder(material_hash, h("StaticMaterialDef")).build()],
     );
 
-    assert!(!resolved.materials[0].missing);
-    assert_eq!(resolved.materials[0].source, Some(skin));
+    assert!(!resolved.unwrap().materials[0].missing);
 }
 
 #[test]

@@ -45,12 +45,12 @@ pub fn character_spells(index: &ObjectIndex, character: &str) -> SpellCatalog {
     let is_spell = |object| index.declares_class(object, spell_class);
 
     let mut spells: Vec<CharacterSpell> = index
-        .named_objects()
+        .named_under(&format!("Characters/{character}/Spells"))
         .filter_map(|(object, path)| {
-            let name = spell_name(path, character)?;
+            let name = spell_name(&path, character)?;
             is_spell(object).then(|| CharacterSpell {
                 object_hash: hex(object),
-                path: path.to_owned(),
+                path: path.to_string(),
                 name: name.to_owned(),
                 group: name.split_once('/').map(|(group, _)| group.to_owned()),
                 declarations: index
@@ -73,8 +73,8 @@ pub fn character_spells(index: &ObjectIndex, character: &str) -> SpellCatalog {
 
 /// The part of `path` below `Characters/{character}/Spells`, where it lies there.
 ///
-/// Matched by segment rather than through the case-sensitive path index, since the tables
-/// name spell paths in mixed casing.
+/// Segments match without regard to ASCII case, since the tables name spell paths in mixed
+/// casing.
 fn spell_name<'a>(path: &'a str, character: &str) -> Option<&'a str> {
     let mut segments = path.splitn(4, '/');
     let (Some(root), Some(owner), Some(folder), Some(name)) = (

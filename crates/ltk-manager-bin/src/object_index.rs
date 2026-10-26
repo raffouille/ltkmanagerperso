@@ -1,14 +1,16 @@
 //! Every bin object the install declares, and the file that declares it.
 //!
-//! The locations half of the palette's object search. The names half is the
-//! `binentries` table, resolved once the rows are built and held beside them.
+//! A [`GameSearch`] of `ltk_game_index` holds the declarations, the terms of every
+//! declaration and the name sheets that resolve their hashes. This module keeps the
+//! palette's ranking, the full search, the objects browser and the reference walk over it.
 //!
 //! Per "The bin object index" in `docs/ux/PROJECT_EDITOR.md`, and section 10 of
 //! `docs/research/bin-object-index.md`.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::Arc;
 
+use ltk_game_index::{Declaration, GameSearch};
 use ltk_hash::BinHash;
 use ltk_wad::{WadHash, hex_name};
 
@@ -18,21 +20,21 @@ use ltk_manager_assets::preview::AssetRef;
 mod browse;
 mod build;
 mod find;
-mod names;
 mod references;
 mod search;
 mod state;
 mod types;
 mod walk;
 
+pub use ltk_game_index::{NameSource, NameTable, ObjectStats, TermIndex};
 pub use state::{
-    BuildTicket, ObjectFindGeneration, ObjectIndexSnapshot, ObjectIndexState,
-    ObjectReferenceGeneration, ObjectSearchGeneration,
+    BuildTicket, IndexSnapshot, IndexState, ObjectFindGeneration, ObjectIndexSnapshot,
+    ObjectIndexState, ObjectReferenceGeneration, ObjectSearchGeneration,
 };
 pub use types::{
     DeclaredObject, ObjectClassHit, ObjectDeclaration, ObjectDirListing, ObjectFindHit,
-    ObjectFindResult, ObjectIndexStats, ObjectNodeEntry, ObjectPrefixEntry, ObjectSearchHit,
-    ObjectSearchResult, ReferenceGroup, ReferenceHit, ReferenceProperty, ReferenceResult,
+    ObjectFindResult, ObjectNodeEntry, ObjectPrefixEntry, ObjectSearchHit, ObjectSearchResult,
+    ReferenceGroup, ReferenceHit, ReferenceProperty, ReferenceResult,
 };
 pub use walk::{FileTarget, LayerBin, WalkRequest, WalkTarget, layer_bins};
 
@@ -44,120 +46,127 @@ use ltk_manager_base::generation::STALE_CHECK_INTERVAL;
 /// game ships.
 pub const UNNAMED_PREFIX: &str = "?";
 
-/// One declaration: an object, its class, and the chunk that declares it.
-///
-/// The chunk is its WAD path hash, which survives a rebuild of the game index.
-#[derive(Debug, Clone, Copy)]
-struct Row {
-    object: BinHash,
-    class: BinHash,
-    file: WadHash,
-}
+/// The entry of an object the `Entries` sheet does not name.
+const NO_ENTRY: u32 = u32::MAX;
 
-/// One bin chunk the build read, which a row's file hash resolves to.
+/// One bin chunk that declares an object, which a declaration's chunk resolves to.
 #[derive(Debug)]
 struct DeclaringFile {
     path_hash: WadHash,
-    /// The path the game index named it by, or `None` for a sniffed chunk.
-    path: Option<Box<str>>,
     /// Index into [`Declarations::wads`].
     wad: u32,
 }
 
-/// What a build fills, and what a renaming shares untouched.
-#[derive(Debug, Default)]
+/// The declaring files of the install and the archives they sit in.
+#[derive(Debug)]
 struct Declarations {
-    /// In archive order, and in the game index's tree order within one, the
-    /// sniffed chunks after the named.
-    rows: Vec<Row>,
-    /// Every distinct object hash, sorted, for a lookup by hash.
-    objects: Box<[BinHash]>,
-    /// Every index into `rows`, sorted by object and then by row, for the rows of one hash.
-    by_object: Box<[u32]>,
+    /// Every declaring chunk in archive order, by path within one archive, the unnamed last.
     files: Vec<DeclaringFile>,
     /// A declaring chunk's index in `files`, by its path hash.
     by_file: HashMap<WadHash, u32>,
-    /// Archive names, in the game index's order.
+    /// Archive names, in the chunk index's order.
     wads: Vec<String>,
-    stats: ObjectIndexStats,
 }
 
-/// One object a table names: its path, with its letters for the mask to reject on.
-#[derive(Debug)]
-struct NamedObject {
-    hash: BinHash,
-    name: Box<str>,
-    mask: u32,
-}
+/// A name source that names nothing, for an index built before any table is synced.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoNames;
 
-/// The names resolved for one index, resident while it is.
-#[derive(Debug, Default)]
-struct Names {
-    /// Every object a table names, in the order of [`compare_paths`], which the
-    /// objects browser reads one prefix at a time.
-    named: Vec<NamedObject>,
-    /// The index into `named` of each object a table names.
-    objects: HashMap<BinHash, u32>,
-    classes: HashMap<BinHash, Box<str>>,
-    /// The declaring chunks the build sniffed that a table names after all.
-    files: HashMap<WadHash, Box<str>>,
+impl NameSource for NoNames {
+    fn version(&self, _table: NameTable) -> Option<String> {
+        None
+    }
+
+    fn for_each_name(&self, _table: NameTable, _visit: &mut dyn FnMut(u64, &str)) {}
 }
 
 /// Every bin object the install declares, searchable by path or by hash.
 ///
-/// Built once a session behind the Objects switch, and renamed in place when
-/// the hash tables move, because the rows are the install's and the names
-/// are the tables'.
+/// Built once a session behind the Objects switch. The names are the sheets the
+/// build cut from the hash tables, so a hashtable sync builds the index again.
 #[derive(Debug)]
 pub struct ObjectIndex {
-    declared: Arc<Declarations>,
-    names: Names,
+    /// The term index of the install and the name sheets that resolve its hashes.
+    search: GameSearch,
+    declared: Declarations,
+    /// Every object the install declares, ascending.
+    objects: Vec<BinHash>,
+    /// Per object, the `Entries` sheet entry naming it, or [`NO_ENTRY`].
+    entries: Vec<u32>,
+    /// Per object, the letters of its lowercased path, for the mask to reject on.
+    masks: Vec<u32>,
+    /// Per row, the position of its object in `objects`.
+    row_objects: Vec<u32>,
+    /// The name of every class a row declares that a table names.
+    classes: HashMap<BinHash, Box<str>>,
+    /// How many objects the `Entries` sheet names.
+    named: usize,
 }
 
 impl ObjectIndex {
     /// Every declaration of `object` in archive order, serialized.
     fn declarations_of(&self, object: BinHash) -> Vec<ObjectDeclaration> {
-        self.declared
-            .rows_of(object)
-            .iter()
-            .map(|at| self.declaration(*at))
+        self.index()
+            .declarations(object)
+            .map(|(_, row)| self.declaration(row))
             .collect()
     }
 
     /// What the build measured.
-    pub fn stats(&self) -> ObjectIndexStats {
-        self.declared.stats
+    pub fn stats(&self) -> ObjectStats {
+        *self.index().stats()
+    }
+
+    /// The term index of the install, which a reference walk reads its postings from.
+    #[must_use]
+    pub fn terms(&self) -> &TermIndex {
+        self.search.terms()
     }
 
     /// Whether any file of the install declares `object`.
     #[must_use]
     pub fn declares(&self, object: BinHash) -> bool {
-        self.declared.objects.binary_search(&object).is_ok()
+        self.index().declares(object)
     }
 
     /// Whether any file of the install declares `object` as an instance of `class`.
     #[must_use]
     pub fn declares_class(&self, object: BinHash, class: BinHash) -> bool {
-        self.declared
-            .rows_of(object)
-            .iter()
-            .any(|at| self.declared.rows[*at as usize].class == class)
+        self.index()
+            .declarations(object)
+            .any(|(_, row)| row.class == class)
     }
 
     /// Returns the chunk of each declaration of `object`, in archive order.
     pub fn declaring_chunks(&self, object: BinHash) -> impl Iterator<Item = WadHash> + '_ {
-        self.declared
-            .rows_of(object)
-            .iter()
-            .map(|at| self.declared.rows[*at as usize].file)
+        self.index().declarations(object).map(|(_, row)| row.chunk)
     }
 
-    /// Every object a table names, with its path, in path order.
-    pub fn named_objects(&self) -> impl Iterator<Item = (BinHash, &str)> + '_ {
-        self.names
-            .named
+    /// Every object a table names, with its path as the table writes it, in path order.
+    pub fn named_objects(&self) -> impl Iterator<Item = (BinHash, Cow<'_, str>)> + '_ {
+        self.named_under("")
+    }
+
+    /// Every object a table names at or under `prefix`, with its path, in path order.
+    ///
+    /// `prefix` is compared without regard to ASCII case. An empty prefix yields every
+    /// named object.
+    pub fn named_under<'a>(
+        &'a self,
+        prefix: &str,
+    ) -> impl Iterator<Item = (BinHash, Cow<'a, str>)> + 'a {
+        self.search
+            .under(prefix)
+            .filter_map(|(_, object)| Some((object, self.object_path(object)?)))
+    }
+
+    /// The objects no table names, by hash.
+    pub fn unnamed_objects(&self) -> impl Iterator<Item = BinHash> + '_ {
+        self.objects
             .iter()
-            .map(|object| (object.hash, &*object.name))
+            .zip(&self.entries)
+            .filter(|(_, entry)| **entry == NO_ENTRY)
+            .map(|(object, _)| *object)
     }
 
     /// Every declaration of `object` in archive order, or `None` where nothing declares it.
@@ -173,14 +182,13 @@ impl ObjectIndex {
         })
     }
 
-    /// The row at `at` as a serialized declaration.
-    fn declaration(&self, at: u32) -> ObjectDeclaration {
-        let row = &self.declared.rows[at as usize];
-        let (file, wad) = self.declared.file(row.file).map_or_else(
-            || (hex_name(row.file), String::new()),
+    /// `row` as a serialized declaration.
+    fn declaration(&self, row: &Declaration) -> ObjectDeclaration {
+        let (file, wad) = self.declared.file(row.chunk).map_or_else(
+            || (hex_name(row.chunk), String::new()),
             |file| {
                 (
-                    self.file_name(file),
+                    self.file_name(file.path_hash),
                     self.declared.wads[file.wad as usize].clone(),
                 )
             },
@@ -188,7 +196,7 @@ impl ObjectIndex {
         ObjectDeclaration {
             asset: AssetRef::GameChunk {
                 wad,
-                path_hash: hex_name(row.file),
+                path_hash: hex_name(row.chunk),
             },
             file,
             class_hash: hex(row.class),
@@ -196,38 +204,65 @@ impl ObjectIndex {
         }
     }
 
+    /// The declarations of the install, in storage order. A declaration's position is its row.
+    fn rows(&self) -> &[Declaration] {
+        self.index().rows()
+    }
+
+    /// The object index of the install.
+    fn index(&self) -> &ltk_game_index::ObjectIndex {
+        self.search.terms().objects()
+    }
+
+    /// The position of `object` in `objects`, or `None` where nothing declares it.
+    fn position(&self, object: BinHash) -> Option<usize> {
+        self.objects.binary_search(&object).ok()
+    }
+
+    /// The `Entries` sheet entry naming the object at `at` in `objects`.
+    fn entry_at(&self, at: usize) -> Option<u32> {
+        Some(self.entries[at]).filter(|&entry| entry != NO_ENTRY)
+    }
+
+    /// The object's path as the table writes it, or `None` where no table names it.
+    fn object_path(&self, object: BinHash) -> Option<Cow<'_, str>> {
+        let entry = self.entry_at(self.position(object)?)?;
+        Some(self.entries_sheet().entry(entry))
+    }
+
     /// The object's path, or its hex when no table names it.
     fn object_name(&self, object: BinHash) -> String {
-        self.named_object(object)
-            .map_or_else(|| hex(object), |named| named.name.to_string())
+        self.object_path(object)
+            .map_or_else(|| hex(object), Cow::into_owned)
     }
 
     /// The class's name, or its hex when no table names it.
     fn class_name(&self, class: BinHash) -> String {
-        self.names
-            .classes
+        self.classes
             .get(&class)
             .map_or_else(|| hex(class), ToString::to_string)
     }
 
-    /// The name a declaring chunk reads as: the game index's, else a table's
-    /// resolved since, else its hex.
-    fn file_name(&self, file: &DeclaringFile) -> String {
-        file.path
-            .as_deref()
-            .or_else(|| self.names.files.get(&file.path_hash).map(|path| &**path))
-            .map_or_else(|| hex_name(file.path_hash), str::to_owned)
+    /// The path the `Chunks` sheet gives a declaring chunk, else its hex.
+    fn file_name(&self, path_hash: WadHash) -> String {
+        self.search
+            .name(NameTable::Chunks, path_hash.0)
+            .map_or_else(|| hex_name(path_hash), Cow::into_owned)
     }
 
-    /// Every row as `(object, class, declaring file name)`, in row order.
+    /// The sheet of object paths.
+    fn entries_sheet(&self) -> &ltk_game_index::Sheet {
+        self.search.names().sheet(NameTable::Entries)
+    }
+
+    /// Every row as `(object, class, declaring file name)`, file by file in the order of
+    /// `files`.
     #[cfg(test)]
-    fn rows(&self) -> impl Iterator<Item = (BinHash, BinHash, String)> {
-        self.declared.rows.iter().map(|row| {
-            let file = self
-                .declared
-                .file(row.file)
-                .map_or_else(|| hex_name(row.file), |file| self.file_name(file));
-            (row.object, row.class, file)
+    fn test_rows(&self) -> impl Iterator<Item = (BinHash, BinHash, String)> {
+        self.declared.files.iter().flat_map(|file| {
+            self.index()
+                .chunk_declarations(file.path_hash)
+                .map(|(_, row)| (row.object, row.class, self.file_name(file.path_hash)))
         })
     }
 }
@@ -237,14 +272,6 @@ impl Declarations {
         self.by_file
             .get(&path_hash)
             .map(|&at| &self.files[at as usize])
-    }
-
-    /// The indices of every row declaring `object`, in row order.
-    fn rows_of(&self, object: BinHash) -> &[u32] {
-        let key = |at: &u32| self.rows[*at as usize].object;
-        let start = self.by_object.partition_point(|at| key(at) < object);
-        let end = start + self.by_object[start..].partition_point(|at| key(at) == object);
-        &self.by_object[start..end]
     }
 }
 

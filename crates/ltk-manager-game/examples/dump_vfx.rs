@@ -20,7 +20,7 @@ use fs_err as fs;
 use ltk_hash::{BinHash, Hash as _};
 use ltk_manager_assets::hashtables::HashtableCache;
 use ltk_manager_bin::bin_document::BinDocument;
-use ltk_manager_game::vfx::resolve_system;
+use ltk_manager_game::lookup::ObjectLookup;
 use ltk_meta::BinFile;
 
 fn main() {
@@ -87,7 +87,9 @@ fn main() {
 
     if json {
         let document = BinDocument::parse(bytes).expect("parse bin");
-        let system = resolve_system(&document, wanted, &(), &(), None).expect("resolve system");
+        let system = ObjectLookup::single(&document, &(), &(), None)
+            .system(wanted)
+            .expect("resolve system");
         println!("{}", serde_json::to_string(&system).expect("serialize"));
         return;
     }

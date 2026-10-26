@@ -10,22 +10,19 @@ import type {
 } from "@/lib/tauri";
 import { programTextureAssets } from "@/modules/viewport";
 
-import { materialReads, programsOf } from "../skinScene";
+import { materialHashes, programsOf } from "../skinScene";
 
 const BODY = "0x0000b0d1";
 const EYES = "0x0000e1e5";
-const CAPE = "0x0000ca9e";
 
 const DIFFUSE: AssetRef = { kind: "file", path: "body.tex" };
 const MASK: AssetRef = { kind: "file", path: "mask.tex" };
-const CAC: AssetRef = { kind: "file", path: "DATA/Characters/Ahri/Skins/Skin3/CAC.bin" };
 
-function preview(hash: string, missing = false, source: AssetRef | null = null): MaterialPreview {
+function preview(hash: string, missing = false): MaterialPreview {
   return {
     hash,
     name: null,
     missing,
-    source,
     animated: false,
     shader: null,
     base: null,
@@ -65,6 +62,7 @@ function skin(): SkinModel {
     selfIllumination: null,
     animationGraph: null,
     idleEffects: [],
+    persistentConditions: [],
     effectSystems: [],
     poseModifiers: [],
     sockets: [],
@@ -122,26 +120,9 @@ function program(hash: string, passes: PassProgram[]): MaterialProgram {
   return { hash, name: null, animated: false, kind: "skinnedMesh", passes, warnings: [] };
 }
 
-describe("materialReads", () => {
+describe("materialHashes", () => {
   it("names each material the skin draws with once, and no missing one", () => {
-    expect(materialReads(skin())).toEqual([{ source: null, hashes: [BODY, EYES] }]);
-  });
-
-  it("reads a material a linked file declares from that file, after the skin's own", () => {
-    const linked: SkinModel = {
-      ...skin(),
-      material: preview(BODY, false, CAC),
-      overrides: [
-        { submesh: "Eyes", texture: null, material: preview(EYES) },
-        { submesh: "Cape", texture: null, material: preview(CAPE, false, CAC) },
-        { submesh: "Eyes2", texture: null, material: preview(EYES) },
-      ],
-    };
-
-    expect(materialReads(linked)).toEqual([
-      { source: null, hashes: [EYES] },
-      { source: CAC, hashes: [BODY, CAPE] },
-    ]);
+    expect(materialHashes(skin())).toEqual([BODY, EYES]);
   });
 });
 

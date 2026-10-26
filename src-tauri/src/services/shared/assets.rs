@@ -2,7 +2,7 @@
 
 use ltk_manager_assets::game_wads::WadCache;
 use ltk_manager_assets::preview::AssetRef;
-use ltk_manager_bin::bin_document::{AssetLookup, BinDocument};
+use ltk_manager_bin::bin_document::BinDocument;
 use tauri::{AppHandle, Manager};
 
 use crate::error::AppResult;
@@ -40,13 +40,4 @@ pub(crate) fn linked_reader(app: &AppHandle) -> impl FnMut(&AssetRef) -> Option<
             None
         }
     }
-}
-
-/// The files `document` links, where something on this machine holds them.
-pub(crate) fn linked_assets(document: &BinDocument, assets: &dyn AssetLookup) -> Vec<AssetRef> {
-    document
-        .dependencies()
-        .iter()
-        .filter_map(|path| assets.locate(path))
-        .collect()
 }

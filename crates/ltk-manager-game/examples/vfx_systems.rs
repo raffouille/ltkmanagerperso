@@ -13,7 +13,7 @@ use std::io::{BufWriter, Write as _};
 use fs_err as fs;
 use ltk_hash::{BinHash, Hash as _};
 use ltk_manager_bin::bin_document::BinDocument;
-use ltk_manager_game::vfx::resolve_system;
+use ltk_manager_game::lookup::ObjectLookup;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -53,7 +53,8 @@ fn main() {
                 })
                 .collect();
             for entry in systems {
-                let Ok(system) = resolve_system(&document, entry, &(), &(), None) else {
+                let Ok(system) = ObjectLookup::single(&document, &(), &(), None).system(entry)
+                else {
                     refused += 1;
                     continue;
                 };

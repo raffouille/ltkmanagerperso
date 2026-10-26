@@ -3,6 +3,7 @@
 use super::*;
 use fs_err as fs;
 use indexmap::IndexMap;
+use ltk_hash::HashValue;
 use ltk_manager_base::config::Config;
 use ltk_manager_base::hashing::named;
 use ltk_meta::{Bin, BinFile};
@@ -179,6 +180,7 @@ fn the_check_reads_a_stream_as_it_reads_the_tree() {
         tables: table::tables(),
         schema: &schema,
         judged: None,
+        installed: None,
         names: &nothing,
     };
 
@@ -439,7 +441,8 @@ fn the_builds_it_compared_stay_out_of_the_sentence() {
 
 /// A modder wants to see what is coming, so waiting mutes the findings in
 /// the panel rather than withholding them. The severity is what says the
-/// game has not taken the change, and the fix is never withheld.
+/// game has not taken the change, and the fix is withheld until it does,
+/// because the repair would break the mod on the build the modder plays.
 #[test]
 fn a_waiting_rule_still_finds_everything_at_warning() {
     let (_tmp, files) = project_on(&bin_with(ICON_AVATAR, text(ICON)), Some(BEFORE_TABLE));
@@ -447,7 +450,22 @@ fn a_waiting_rule_still_finds_everything_at_warning() {
     let problems = check_with(&files);
     assert_eq!(problems.len(), 1);
     assert_eq!(problems[0].severity, ProblemSeverity::Warning);
-    assert!(problems[0].fix.is_some());
+    assert!(problems[0].fix.is_none());
+}
+
+/// A fix run on a build the table is ahead of writes nothing, whatever it
+/// was asked to apply.
+#[test]
+fn a_fix_on_a_build_before_the_table_skips_every_problem() {
+    let bin = bin_with(ICON_AVATAR, text(ICON));
+    let (applied, written) = fix_all_on(&bin, Some(BEFORE_TABLE));
+
+    assert_eq!(applied.applied, 0);
+    assert_eq!(applied.skipped, 1);
+    assert_eq!(
+        written.objects()[&ENTRY].properties[&ICON_AVATAR],
+        text(ICON).into()
+    );
 }
 
 /// The row that earns a message: this one is not the ordinary retype, it
@@ -834,6 +852,7 @@ fn a_fix_reaches_a_property_under_an_index_and_a_key() {
         tables: table::tables(),
         schema: &schema,
         judged: None,
+        installed: None,
         names: &nothing,
     };
     assert!(check_bin(&repaired, lens).is_empty());
@@ -1997,6 +2016,7 @@ fn the_check_over_a_stream_matches_the_check_over_the_owned_tree() {
         tables: table::tables(),
         schema: &schema,
         judged: None,
+        installed: None,
         names: &nothing,
     };
     let mut owned: Vec<String> = check_bin(&BinFile::Prop(bin), lens)
@@ -2166,4 +2186,314 @@ fn the_16_18_both_halves_retypes_are_reported_repairable() {
     assert_eq!(mismatch.found, "list2[string]");
     assert!(problems[0].fix.is_some());
     assert_eq!(problems[0].message, None, "no rebuild-the-mod sentence");
+}
+
+/* The 8-byte material name. Patch 16.21 stores `StaticMaterialDef.name` as
+the 8-byte `Hash` of the path, XXH3 of it lowercased, where every build before
+wrote the path itself. The table holds two rows for the one property, because a
+mod authored under the old type holds either the path or its FNV1a hash. */
+
+const STATIC_MATERIAL_DEF: BinHash = named("StaticMaterialDef");
+const NAME: BinHash = named("name");
+
+/// The build the 16.21 table is a claim about.
+const MATERIAL_TABLE: GameBuild = GameBuild::new(16, 21, 8_298_620);
+/// The live build before it, on which a material name is still a path.
+const BEFORE_MATERIAL_TABLE: GameBuild = GameBuild::new(16, 20, 8_248_524);
+
+/// The `name` of a `StaticMaterialDef` in a 16.21 skin bin, and the path it is
+/// the hash of.
+const MATERIAL: &str = "Characters/Zac/Skins/Skin31/Materials/ult";
+const MATERIAL_WIDE: u64 = 0x5d07_ca0d_22ff_9588;
+
+/// A material path no hashtable names, so a fix has to keep it itself.
+const FIXTURE_MATERIAL: &str = "Characters/Fixture/Skins/Skin0/Materials/Wide_inst";
+
+fn material_bin(value: impl Into<PropertyValueEnum>) -> Bin {
+    object_bin(STATIC_MATERIAL_DEF, NAME, value)
+}
+
+/// The two rows of the one property, the `String` one first.
+fn material_name_rows() -> (&'static Migration, &'static Migration) {
+    let rows = table::tables()
+        .iter()
+        .map(|table| table.migrations(STATIC_MATERIAL_DEF, NAME))
+        .find(|rows| !rows.is_empty())
+        .expect("StaticMaterialDef:name is a 16.21 row");
+    let string = rows
+        .iter()
+        .find(|row| row.conversion == Conversion::HashXxh3)
+        .expect("the String row");
+    let hash = rows
+        .iter()
+        .find(|row| row.conversion == Conversion::RehashXxh3)
+        .expect("the Hash row");
+    (string, hash)
+}
+
+#[test]
+fn a_material_name_string_hashes_to_the_wide_xxh3_of_the_path() {
+    let (string, _) = material_name_rows();
+
+    let mut value: PropertyValueEnum = text(MATERIAL).into();
+    assert!(convert(&mut value, string, &BinNames::none()));
+
+    let PropertyValueEnum::Hash(hash) = &value else {
+        panic!("expected a Hash");
+    };
+    assert_eq!(hash.value, HashValue::wide(MATERIAL_WIDE));
+    assert_eq!(hash.value.width(), HashWidth::W8);
+}
+
+#[test]
+fn a_material_name_hash_rehashes_through_the_table_that_names_it() {
+    let (_, hash_row) = material_name_rows();
+    let (_tmp, names) = names_of(&[MATERIAL]);
+
+    let mut value: PropertyValueEnum = values::Hash::new(BinHash::hash_str(MATERIAL)).into();
+    assert!(convert(&mut value, hash_row, &names));
+
+    let PropertyValueEnum::Hash(hash) = &value else {
+        panic!("expected a Hash");
+    };
+    assert_eq!(hash.value, HashValue::wide(MATERIAL_WIDE));
+
+    let drawn = preview(hash_row, &text(MATERIAL).into(), &names);
+    assert!(drawn.is_none(), "a String is not what the Hash row repairs");
+}
+
+#[test]
+fn a_material_name_hash_no_table_names_stays_and_says_what_is_missing() {
+    let (_, hash_row) = material_name_rows();
+
+    let mut value: PropertyValueEnum = values::Hash::new(BinHash(0x1111_2222)).into();
+    let before = value.clone();
+    assert!(!convert(&mut value, hash_row, &BinNames::none()));
+    assert_eq!(value, before);
+    assert!(preview(hash_row, &value, &BinNames::none()).is_none());
+
+    let text = note(hash_row, &value, &BinNames::none(), None, MATERIAL_TABLE)
+        .expect("an unresolvable rehash speaks up");
+    assert!(text.contains("0x11112222"), "{text}");
+    assert!(text.contains("8-byte Hash"), "{text}");
+    assert!(text.contains("XXH3"), "{text}");
+}
+
+#[test]
+fn a_material_name_preview_draws_the_path_and_the_wide_hash() {
+    let (string, hash_row) = material_name_rows();
+    let (_tmp, names) = names_of(&[MATERIAL]);
+
+    let after = format!("0x{MATERIAL_WIDE:016x}");
+    let drawn = preview(string, &text(MATERIAL).into(), &names).expect("a path has a repair");
+    assert_eq!(
+        drawn.before.as_deref(),
+        Some(format!("{MATERIAL:?}").as_str())
+    );
+    assert_eq!(drawn.after.as_deref(), Some(after.as_str()));
+
+    let value: PropertyValueEnum = values::Hash::new(BinHash::hash_str(MATERIAL)).into();
+    let drawn = preview(hash_row, &value, &names).expect("a named hash has a repair");
+    assert_eq!(
+        drawn.before.as_deref(),
+        Some(format!("{MATERIAL:?}").as_str())
+    );
+    assert_eq!(drawn.after.as_deref(), Some(after.as_str()));
+}
+
+/// Each old type finds its own row, and the finding names the width the game
+/// reads so a reader can tell it from the 4-byte `hash` the file held.
+#[test]
+fn a_material_name_of_either_old_type_is_reported_against_the_wide_hash() {
+    for value in [
+        PropertyValueEnum::from(text(MATERIAL)),
+        values::Hash::new(BinHash::hash_str(MATERIAL)).into(),
+    ] {
+        let (_tmp, files) = project_on(&material_bin(value), Some(MATERIAL_TABLE));
+        let problems = check_with(&files);
+
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].severity, ProblemSeverity::Fatal);
+        let mismatch = problems[0].mismatch.as_ref().expect("a type pair");
+        assert_eq!(mismatch.expected, "hash[u64]");
+        let node = problems[0].site.node.as_ref().unwrap();
+        assert_eq!(node.label.as_deref(), Some("name"));
+    }
+}
+
+#[test]
+fn a_material_name_already_wide_raises_nothing() {
+    let bin = material_bin(values::Hash::new(HashValue::wide(MATERIAL_WIDE)));
+    let (_tmp, files) = project_on(&bin, Some(MATERIAL_TABLE));
+
+    assert!(check_with(&files).is_empty());
+}
+
+/// An install between the two tables is active, because the 16.17 findings
+/// are live, and the 16.21 finding waits with its fix withheld.
+#[test]
+fn an_install_before_16_21_keeps_the_rule_active_and_withholds_the_fix() {
+    let (_tmp, files) = project_on(&material_bin(text(MATERIAL)), Some(BEFORE_MATERIAL_TABLE));
+
+    assert_eq!(BinPropertyType::new().dormant(&files), None);
+    let problems = check_with(&files);
+    assert_eq!(problems.len(), 1);
+    assert_eq!(problems[0].severity, ProblemSeverity::Warning);
+    assert!(problems[0].fix.is_none());
+    assert_eq!(
+        problems[0].message.as_deref(),
+        Some("The installed game still wants the old type.")
+    );
+
+    let (applied, written) = fix_all_on(&material_bin(text(MATERIAL)), Some(BEFORE_MATERIAL_TABLE));
+    assert_eq!(applied.applied, 0);
+    assert_eq!(applied.skipped, 1);
+    assert_eq!(
+        written.objects()[&ENTRY].properties[&NAME],
+        text(MATERIAL).into()
+    );
+}
+
+/// The whole road end to end, on a game that has taken the change: the fix
+/// writes the wide hash, keeps the path in the mod's own table, and a second
+/// run finds nothing.
+#[test]
+fn a_fix_writes_the_wide_hash_of_a_material_name_and_keeps_the_path() {
+    let bin = material_bin(text(FIXTURE_MATERIAL));
+    let tmp = tempfile::tempdir().unwrap();
+    /* A project, so the run has a `hashes/` of its own to keep the path in. */
+    declare_binhashes(tmp.path(), &[]);
+    let dir = tmp.path().join("content").join("base").join("data");
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("skin0.bin");
+    fs::write(&file, bytes_of(&bin)).unwrap();
+
+    let config = config_beside(tmp.path(), Some(MATERIAL_TABLE));
+    let files = ProjectFiles::read(tmp.path(), &config, None).unwrap();
+    let problems = check_with(&files);
+    assert_eq!(problems.len(), 1);
+    assert!(problems[0].fix.is_some());
+
+    let borrowed: Vec<&Problem> = problems.iter().collect();
+    let mut run = FixRun::open(
+        tmp.path(),
+        vec![MATERIAL_TABLE.to_string()],
+        None,
+        config.clone(),
+        None,
+    );
+    let applied = BinPropertyType::new().fix(&borrowed, &mut run).unwrap();
+    run.finish().unwrap();
+    assert_eq!(applied.applied, 1);
+    assert_eq!(applied.skipped, 0);
+
+    let written = read_bin(&file).unwrap();
+    let value = &written.objects()[&ENTRY].properties[&NAME];
+    let PropertyValueEnum::Hash(hash) = value else {
+        panic!("expected a Hash");
+    };
+    assert_eq!(hash.value, WIDE_XXH3.hash_str(FIXTURE_MATERIAL));
+
+    let table = fs::read_to_string(tmp.path().join("hashes").join("game.hashes.txt")).unwrap();
+    assert!(table.contains(FIXTURE_MATERIAL), "{table}");
+
+    let files = ProjectFiles::read(tmp.path(), &config, None).unwrap();
+    assert!(check_with(&files).is_empty());
+}
+
+/// The schema names a type and not a recipe, and a `Hash` in it has no width.
+/// Where it objects to a value a table row moves to its type, the row is the
+/// finding, so the repair the schema cannot describe is still offered.
+#[test]
+fn a_schema_objection_takes_the_table_row_that_reaches_its_type() {
+    let nothing = BinNames::none();
+    let schema = meta_schema::shared(Some(AFTER_RETYPE));
+    assert!(schema.describes(AFTER_RETYPE));
+    let lens = Lens {
+        tables: table::tables(),
+        schema: &schema,
+        judged: Some(AFTER_RETYPE),
+        installed: Some(AFTER_RETYPE),
+        names: &nothing,
+    };
+
+    /* `VfxAssetRemap:oldAsset` is `File` in the schema and a `rehash` row in
+    the 16.17 table. The schema objects to the `Hash`, and the row carries the
+    recipe the schema-derived row would lack. */
+    let value: PropertyValueEnum = values::Hash::new(BinHash(0x5ae4_1520)).into();
+    let objection = lens
+        .objection(named("VfxAssetRemap"), named("oldAsset"), &value)
+        .unwrap()
+        .expect("the schema objects to a Hash where it reads a File");
+    assert_eq!(objection.migration.conversion, Conversion::Rehash);
+    assert_eq!(objection.build, AFTER_RETYPE);
+}
+
+/// A database that reads the material name as a `Hash` from 16.21, in the
+/// published shape, which the shipped snapshot does not reach yet.
+fn material_schema() -> meta_schema::MetaSchema {
+    let json = format!(
+        r#"{{
+          "formatVersion": 1,
+          "hashSource": {{ "fetchedAt": "2026-10-21T00:00:00Z" }},
+          "latest": {wide},
+          "versions": [
+            {{ "patch": "16.20", "build": {narrow} }},
+            {{ "patch": "16.21", "build": {wide} }}
+          ],
+          "classes": {{
+            "0xff9d3409": {{
+              "name": "StaticMaterialDef",
+              "properties": {{
+                "0x8d39bde6": {{
+                  "name": "name",
+                  "revisions": [
+                    {{ "from": 5229820, "to": {narrow}, "type": ["String", "0x0", "0x0", "0x0"] }},
+                    {{ "from": {wide}, "type": ["Hash", "0x0", "0x0", "0x0"] }}
+                  ]
+                }}
+              }}
+            }}
+          }}
+        }}"#,
+        narrow = BEFORE_MATERIAL_TABLE.content(),
+        wide = MATERIAL_TABLE.content(),
+    );
+    meta_schema::MetaSchema::parse(json.as_bytes()).expect("the published shape")
+}
+
+/// The schema is width-blind, so a `Hash` it is content with is still read
+/// against the tables. On a database that reads the material name as a `Hash`,
+/// a 4-byte one is the 16.21 row's finding, a path takes the row that reaches
+/// the schema's type, and the 8-byte one is what both want.
+#[test]
+fn a_hash_the_schema_cannot_size_is_still_read_against_the_tables() {
+    let nothing = BinNames::none();
+    let schema = material_schema();
+    assert!(schema.describes(MATERIAL_TABLE));
+    let lens = Lens {
+        tables: table::tables(),
+        schema: &schema,
+        judged: Some(MATERIAL_TABLE),
+        installed: Some(MATERIAL_TABLE),
+        names: &nothing,
+    };
+    let conversion = |value: PropertyValueEnum| {
+        lens.objection(STATIC_MATERIAL_DEF, NAME, &value)
+            .unwrap()
+            .map(|objection| (objection.migration.conversion, objection.build))
+    };
+
+    assert_eq!(
+        conversion(values::Hash::new(BinHash::hash_str(MATERIAL)).into()),
+        Some((Conversion::RehashXxh3, MATERIAL_TABLE))
+    );
+    assert_eq!(
+        conversion(text(MATERIAL).into()),
+        Some((Conversion::HashXxh3, MATERIAL_TABLE))
+    );
+    assert_eq!(
+        conversion(values::Hash::new(HashValue::wide(MATERIAL_WIDE)).into()),
+        None
+    );
 }

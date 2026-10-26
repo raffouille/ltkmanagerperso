@@ -1,15 +1,18 @@
-//! The renaming pass, which keeps the rows the build read.
+//! The names of an index, which the build cuts from the tables into sheets.
 
 use super::*;
 
 #[test]
-fn naming_again_keeps_the_rows_and_replaces_the_names() {
+fn names_come_from_the_tables_the_build_was_given() {
     let chunks: &[Chunk<'_>] = &[("data/objects.bin", prop(&[("characters/aatrox", "Skin")]))];
-    let (_tmp, index) = build(&[("Objects.wad.client", chunks)], 1);
-    let index = index.named(&TestNames::over(&[], &[]));
-    assert!(index.search("aatrox", || false).hits.is_empty());
+    let wads: &[(&str, &[Chunk<'_>])] = &[("Objects.wad.client", chunks)];
 
-    let index = index.named(&TestNames::over(&["characters/aatrox"], &["Skin"]));
-    assert_eq!(ranked(&index, "aatrox"), ["characters/aatrox"]);
-    assert_eq!(index.stats().rows, 1);
+    let (_tmp, unnamed) = build(wads, 1);
+    assert!(unnamed.search("aatrox", || false).hits.is_empty());
+    assert_eq!(unnamed.unnamed_objects().count(), 1);
+
+    let (_tmp, named) = build_named(wads, 1, TestNames::over(&["characters/aatrox"], &["Skin"]));
+    assert_eq!(ranked(&named, "aatrox"), ["characters/aatrox"]);
+    assert_eq!(named.unnamed_objects().count(), 0);
+    assert_eq!(named.stats().declarations, 1);
 }

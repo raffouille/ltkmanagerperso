@@ -20,7 +20,8 @@
         "resizable": true,
         "transparent": false,
         "visible": false,
-        "backgroundColor": "#0c0d18"
+        "backgroundColor": "#0c0d18",
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disk-cache-size=104857600"
       }
     ],
     "security": {

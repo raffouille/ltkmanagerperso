@@ -20,6 +20,22 @@ export function releaseVersion(version) {
 }
 
 /**
+ * Returns `text` as a PKCS#8 PEM with its own line breaks.
+ *
+ * A secret store may return the PEM on one line, with CRLF line breaks, or with the keygen's
+ * public key line after it. Fails if the body is not base64.
+ */
+export function normalizePem(text) {
+  const match = /-----BEGIN PRIVATE KEY-----([\s\S]*?)-----END PRIVATE KEY-----/.exec(text);
+  const body = (match?.[1] ?? text).replace(/\s+/g, "");
+  if (!/^[A-Za-z0-9+/]+=*$/.test(body)) {
+    throw new Error("Not a PKCS#8 PEM private key");
+  }
+
+  return `-----BEGIN PRIVATE KEY-----\n${body.match(/.{1,64}/g).join("\n")}\n-----END PRIVATE KEY-----\n`;
+}
+
+/**
  * Returns the attestation of a build of `version` at `commit`, signed with the PEM private
  * key `pem`: `base64url(statement).base64url(signature)`, where the statement is
  * `{"manager":"<release version>","commit":"<commit>"}`. Fails if `commit` is not 40 hex.
@@ -33,7 +49,7 @@ export function attest(version, commit, pem) {
   const signature = sign(
     null,
     Buffer.concat([Buffer.from(PURPOSE), statement]),
-    createPrivateKey(pem),
+    createPrivateKey(normalizePem(pem)),
   );
 
   return `${statement.toString("base64url")}.${signature.toString("base64url")}`;

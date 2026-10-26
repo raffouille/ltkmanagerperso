@@ -295,3 +295,61 @@ fn read_resolves_known_chunks_and_leaves_the_rest_unresolved() {
         format!("{:016x}", path_hash("assets/unknown.bin"))
     );
 }
+
+#[test]
+fn chunk_index_lists_every_chunk_with_the_archives_that_contain_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = final_dir(tmp.path());
+    build_test_wad(
+        &dir.join("A.wad.client"),
+        &["assets/shared.bin", "assets/a.bin"],
+    );
+    build_test_wad(&dir.join("B.wad.client"), &["assets/shared.bin"]);
+
+    let index = GameArchives::at(tmp.path()).chunk_index(None).unwrap();
+
+    let names: Vec<&str> = index.archives().iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, ["A.wad.client", "B.wad.client"]);
+    assert_eq!(index.len(), 2);
+    let holders: Vec<usize> = index
+        .holders(WadHash(path_hash("assets/shared.bin")))
+        .map(|id| id.index())
+        .collect();
+    assert_eq!(holders, [0, 1]);
+}
+
+#[test]
+fn chunk_index_reads_the_cache_it_wrote_for_the_game() {
+    let tmp = tempfile::tempdir().unwrap();
+    build_test_wad(
+        &final_dir(tmp.path()).join("A.wad.client"),
+        &["assets/a.bin"],
+    );
+    let cache = tmp.path().join("cache").join("chunks.bin");
+    let archives = GameArchives::at(tmp.path());
+
+    let built = archives.chunk_index(Some(&cache)).unwrap();
+    let loaded = archives.chunk_index(Some(&cache)).unwrap();
+
+    assert!(cache.is_file());
+    assert_eq!(built, loaded);
+}
+
+#[test]
+fn chunk_index_writes_no_cache_for_the_league_client() {
+    let tmp = tempfile::tempdir().unwrap();
+    let plugins = tmp.path().join("Plugins");
+    build_test_wad(
+        &plugins.join("rcp-fe-lol-loot").join("assets.wad"),
+        &["a.png"],
+    );
+    let cache = tmp.path().join("chunks.bin");
+
+    let index = GameArchives::lcu_at(&plugins)
+        .chunk_index(Some(&cache))
+        .unwrap();
+
+    assert_eq!(index.archives()[0].name, "rcp-fe-lol-loot/assets.wad");
+    assert_eq!(index.len(), 1);
+    assert!(!cache.exists());
+}

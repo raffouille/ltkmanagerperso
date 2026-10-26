@@ -22,6 +22,7 @@ import { objectRow } from "../../material/utils/entryEdits";
 import { nameHash } from "../../shared/utils/binHash";
 import { nameColumn } from "../../shared/utils/textCut";
 import { ClipsSection } from "../../skin/components/ClipsSection";
+import { ConditionRows } from "../../skin/components/ConditionRows";
 import { EffectTable } from "../../skin/components/EffectTable";
 import { IconRow, MeshCard, OverrideRows } from "../../skin/components/SkinSections";
 import { rowKey } from "../../tree/utils/binRows";
@@ -52,6 +53,7 @@ const FIELD_ROW_WIDGETS: ReadonlySet<SectionWidget | undefined> = new Set([
   "fields",
   "mesh",
   "override-rows",
+  "condition-rows",
 ]);
 
 /** Every placed section, in the order the layout named them, over one name column. */
@@ -161,6 +163,7 @@ const WIDGETS: Record<Exclude<SectionWidget, "tree">, (props: WidgetProps) => Re
   mesh: MeshCard,
   "override-rows": OverrideRows,
   "effect-table": EffectTable,
+  "condition-rows": ConditionRows,
   "material-params": MaterialParams,
   "material-samplers": MaterialSamplers,
   "material-switches": MaterialSwitches,

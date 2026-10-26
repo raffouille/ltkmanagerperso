@@ -25,15 +25,18 @@ fn the_named_objects_are_every_path_a_table_names_in_path_order() {
     ]);
 
     assert_eq!(
-        index.named_objects().collect::<Vec<_>>(),
+        index
+            .named_objects()
+            .map(|(hash, path)| (hash, path.into_owned()))
+            .collect::<Vec<_>>(),
         [
             (
                 BinHash::hash_str("Characters/Ahri/CharacterRecords/Root"),
-                "Characters/Ahri/CharacterRecords/Root"
+                "Characters/Ahri/CharacterRecords/Root".to_owned()
             ),
             (
                 BinHash::hash_str("Characters/Sejuani/Spells/SejuaniE"),
-                "Characters/Sejuani/Spells/SejuaniE"
+                "Characters/Sejuani/Spells/SejuaniE".to_owned()
             ),
         ]
     );
@@ -48,8 +51,11 @@ fn an_object_no_table_names_is_unnamed() {
             ("Characters/Other/Spells/Q", "SpellObject"),
         ]),
     )];
-    let (_tmp, index) = build(&[("A.wad.client", chunks)], 1);
-    let index = index.named(&TestNames::over(&["Characters/Sejuani/Spells/E"], &[]));
+    let (_tmp, index) = build_named(
+        &[("A.wad.client", chunks)],
+        1,
+        TestNames::over(&["Characters/Sejuani/Spells/E"], &[]),
+    );
 
     assert_eq!(
         index.unnamed_objects().collect::<Vec<_>>(),

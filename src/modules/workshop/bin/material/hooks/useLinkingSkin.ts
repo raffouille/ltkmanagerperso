@@ -5,7 +5,7 @@ import type { BinDocumentId } from "@/lib/tauri";
 
 import { nameHash } from "../../shared/utils/binHash";
 import { skinQueries } from "../../skin/api/skinQueries";
-import { materialReads } from "../../skin/utils/skinScene";
+import { materialHashes } from "../../skin/utils/skinScene";
 import { materialQueries } from "../api/materialQueries";
 
 /** The classes a skin object is declared as, which the skin layout draws. */
@@ -50,8 +50,7 @@ export function useLinkingSkin(document: BinDocumentId, entry: string | null): L
       pending ||= model.error === null;
       continue;
     }
-    const draws = materialReads(model.data).some((read) => read.hashes.includes(entry));
-    if (draws) return { status: "skin", entry: skins[at] };
+    if (materialHashes(model.data).includes(entry)) return { status: "skin", entry: skins[at] };
   }
   return pending ? READING : NONE;
 }

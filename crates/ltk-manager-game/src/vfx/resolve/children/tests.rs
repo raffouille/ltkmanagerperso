@@ -8,7 +8,8 @@ use ltk_meta::property::{Kind, values};
 use ltk_meta::{Bin, BinObject};
 
 use super::*;
-use ltk_manager_bin::bin_document::hex;
+use ltk_manager_assets::preview::AssetRef;
+use ltk_manager_bin::bin_document::{AssetLookup, BinDocument, RowNames, hex};
 
 fn h(text: &str) -> BinHash {
     BinHash::hash_str(text)
@@ -60,7 +61,11 @@ fn asset(path: &str) -> AssetRef {
 }
 
 fn document_of(objects: Vec<BinObject>) -> BinDocument {
-    let mut bin = Bin::builder();
+    document_linking(objects, &[])
+}
+
+fn document_linking(objects: Vec<BinObject>, dependencies: &[&str]) -> BinDocument {
+    let mut bin = Bin::builder().dependencies(dependencies.iter().copied());
     for object in objects {
         bin = bin.object(object);
     }
@@ -123,7 +128,7 @@ fn searched(
     field: &str,
     bins: HashMap<&str, Vec<BinObject>>,
 ) -> (VfxValue, Vec<AssetRef>) {
-    let open = document_of(open);
+    let open = document_linking(open, &[LINKED_BIN]);
     let mut system = resolve_system(&open, h(PARENT), &Tables, &Bins, None).unwrap();
     let mut documents: HashMap<AssetRef, Vec<BinObject>> = bins
         .into_iter()
@@ -131,18 +136,14 @@ fn searched(
         .collect();
     let mut read = Vec::new();
 
-    search_linked_children(
-        &mut system,
-        &open,
-        vec![asset(LINKED_BIN)],
-        &Tables,
-        &Bins,
-        None,
-        &mut |asset| {
+    {
+        let mut reading = |asset: &AssetRef| {
             read.push(asset.clone());
             documents.remove(asset).map(document_of)
-        },
-    );
+        };
+        let mut lookup = ObjectLookup::new(&open, &Tables, &Bins, None, &mut reading);
+        search_linked_children(&mut system, Declared::Open, &mut lookup);
+    }
 
     let VfxValue::Struct { fields, .. } = &system.root else {
         panic!("the root is a struct");

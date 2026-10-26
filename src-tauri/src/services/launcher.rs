@@ -60,22 +60,29 @@ pub struct LaunchState(InFlight<StopFlag>);
 /// Ask the Riot Client to launch League.
 #[tauri::command]
 #[specta::specta]
-pub fn launch_league(
+pub async fn launch_league(
     target: Option<LaunchTarget>,
-    launcher: State<LauncherState>,
-    launch: State<LaunchState>,
+    app_handle: AppHandle,
 ) -> IpcResult<Option<LaunchOutcome>> {
-    let result = launch_league_inner(target, &launcher, &launch);
-    if let Err(ref e) = result {
-        tracing::error!(error = ?e, "Launch League failed");
-    }
-    result.into()
+    // The request blocks while the Riot Client patches or boots, up to two minutes.
+    off_thread(move || {
+        let result = launch_league_inner(
+            target,
+            &app_handle.state::<LauncherState>(),
+            &app_handle.state::<LaunchState>(),
+        );
+        if let Err(ref e) = result {
+            tracing::error!(error = ?e, "Launch League failed");
+        }
+        result
+    })
+    .await
 }
 
 fn launch_league_inner(
     target: Option<LaunchTarget>,
-    launcher: &State<LauncherState>,
-    launch: &State<LaunchState>,
+    launcher: &LauncherState,
+    launch: &LaunchState,
 ) -> AppResult<Option<LaunchOutcome>> {
     let Some((_guard, stop)) = launch.0.acquire() else {
         tracing::debug!("Launch already in flight, ignoring the request");
@@ -105,20 +112,25 @@ pub fn cancel_launch(launch: State<LaunchState>) -> IpcResult<bool> {
 /// it never started.
 #[tauri::command]
 #[specta::specta]
-pub fn stop_league(launcher: State<LauncherState>) -> IpcResult<()> {
-    let result: AppResult<()> = launcher.launcher().close().map_err(Into::into);
-    if let Err(ref e) = result {
-        tracing::error!(error = ?e, "Stop League failed");
-    }
-    result.into()
+pub async fn stop_league(app_handle: AppHandle) -> IpcResult<()> {
+    let launcher = Arc::clone(app_handle.state::<LauncherState>().launcher());
+    off_thread(move || {
+        let result: AppResult<()> = launcher.close().map_err(Into::into);
+        if let Err(ref e) = result {
+            tracing::error!(error = ?e, "Stop League failed");
+        }
+        result
+    })
+    .await
 }
 
 /// Whether a launch is possible right now. Drives the button's state, so it
 /// reports rather than fails.
 #[tauri::command]
 #[specta::specta]
-pub fn get_launch_availability(launcher: State<LauncherState>) -> IpcResult<LaunchAvailability> {
-    IpcResult::ok(launcher.launcher().availability())
+pub async fn get_launch_availability(app_handle: AppHandle) -> IpcResult<LaunchAvailability> {
+    let launcher = Arc::clone(app_handle.state::<LauncherState>().launcher());
+    off_thread(move || Ok(launcher.availability())).await
 }
 
 /// The League session the Riot Client has open, and start following it.
@@ -128,8 +140,9 @@ pub fn get_launch_availability(launcher: State<LauncherState>) -> IpcResult<Laun
 /// exactly the case after the manager is restarted mid-game.
 #[tauri::command]
 #[specta::specta]
-pub fn get_league_session(launcher: State<LauncherState>) -> IpcResult<Option<SessionStarted>> {
-    IpcResult::ok(launcher.launcher().follow_current_session())
+pub async fn get_league_session(app_handle: AppHandle) -> IpcResult<Option<SessionStarted>> {
+    let launcher = Arc::clone(app_handle.state::<LauncherState>().launcher());
+    off_thread(move || Ok(launcher.follow_current_session())).await
 }
 
 /// The install the client's League session runs from, against the one the

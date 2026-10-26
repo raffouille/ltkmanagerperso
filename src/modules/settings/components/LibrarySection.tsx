@@ -1,9 +1,12 @@
 import { BooksIcon } from "@phosphor-icons/react";
+import { useState } from "react";
 
-import { PathField, SectionCard } from "@/components";
-import { m } from "@/i18n";
+import { PathField, SectionCard, useToast } from "@/components";
+import { describeError, m } from "@/i18n";
+import type { DataMovePlan } from "@/lib/tauri";
 
-import { useLoadedSettings, useUpdateSettings } from "../api";
+import { useLoadedSettings, usePlanDataMove } from "../api";
+import { DataMoveDialog } from "./DataMoveDialog";
 import { ExperimentalChip } from "./ExperimentalChip";
 import { SettingGroup } from "./SettingGroup";
 import { SettingRow } from "./SettingRow";
@@ -12,7 +15,6 @@ import { TrustedDomainsEditor } from "./TrustedDomainsEditor";
 
 export function LibrarySection() {
   const settings = useLoadedSettings();
-  const update = useUpdateSettings();
   return (
     <SectionCard
       title={m.settings_library_title()}
@@ -20,22 +22,7 @@ export function LibrarySection() {
       description={m.settings_library_description()}
     >
       <SettingGroup id="library.storage" title={m.settings_library_storage_title()}>
-        <SettingRow
-          kind="action"
-          layout="stacked"
-          setting="modStoragePath"
-          description={m.settings_library_storage_description()}
-          control={
-            <PathField
-              pick="directory"
-              aria-label={m.settings_library_storage_label()}
-              value={settings.modStoragePath}
-              onSelect={(path) => update({ modStoragePath: path })}
-              placeholder={m.settings_library_storage_placeholder()}
-              dialogTitle={m.settings_library_storage_dialog_title()}
-            />
-          }
-        />
+        <DataLocationRow value={settings.modStoragePath} />
       </SettingGroup>
 
       <SettingGroup id="library.cataloguing" title={m.settings_library_cataloguing_title()}>
@@ -85,5 +72,55 @@ export function LibrarySection() {
         />
       </SettingGroup>
     </SectionCard>
+  );
+}
+
+/** A move to `target`, which is `null` for the app data directory. */
+interface PlannedMove {
+  plan: DataMovePlan;
+  target: string | null;
+}
+
+/** The data location row, which plans a move for a picked folder and confirms it in a dialog. */
+function DataLocationRow({ value }: { value: string | null }) {
+  const planMove = usePlanDataMove();
+  const toast = useToast();
+  const [planned, setPlanned] = useState<PlannedMove | null>(null);
+
+  function plan(target: string | null) {
+    planMove.mutate(target, {
+      onSuccess: (plan) => setPlanned({ plan, target }),
+      onError: (error) => {
+        const { title, description, detail } = describeError(error);
+        toast.error(title, description ?? detail);
+      },
+    });
+  }
+
+  return (
+    <>
+      <SettingRow
+        kind="action"
+        layout="stacked"
+        setting="modStoragePath"
+        description={m.settings_library_storage_description()}
+        control={
+          <PathField
+            pick="directory"
+            aria-label={m.settings_library_storage_label()}
+            value={value}
+            onSelect={plan}
+            onClear={value === null ? undefined : () => plan(null)}
+            placeholder={m.settings_library_storage_placeholder()}
+            dialogTitle={m.settings_library_storage_dialog_title()}
+          />
+        }
+      />
+      <DataMoveDialog
+        plan={planned?.plan ?? null}
+        target={planned?.target ?? null}
+        onClose={() => setPlanned(null)}
+      />
+    </>
   );
 }

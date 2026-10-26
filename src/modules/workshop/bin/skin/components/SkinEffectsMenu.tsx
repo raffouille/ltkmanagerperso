@@ -1,26 +1,22 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MouseEvent } from "react";
 
 import { IconButton, Menu, Tooltip } from "@/components";
 import { m } from "@/i18n";
-import type { AssetRef, BinDocumentId, IdleEffect } from "@/lib/tauri";
+import type { AssetRef, BinDocumentId } from "@/lib/tauri";
 import type { Pose } from "@/modules/viewport";
 
 import { useOptionalProjectContext } from "../../../projects/state/ProjectContext";
 import { useSandbox } from "../../../sandbox/state/SandboxContext";
 import { clickIntent, type HostHint } from "../../../state";
+import { declaringQueries } from "../../documents/api/declaringQueries";
 import { spellQueries } from "../../spells/api/spellQueries";
 import { type EffectTarget, useOpenEffect } from "../../vfx/context/OpenEffect";
 import type { RigModel } from "../../vfx/engine/model/rig";
 import type { ParticleCue } from "../utils/clipEvents";
-import { cueRig, idleRig } from "../utils/skinScene";
-
-/** An idle effect whose system the skin's document declares. */
-export interface HeldIdle {
-  readonly effect: IdleEffect;
-  readonly system: string;
-}
+import type { WornEffect } from "../utils/conditionScene";
+import { cueRig, jointRig } from "../utils/skinScene";
 
 export interface SkinEffectsMenuProps {
   /** The skin's document and what it was read from, which declare its idle effects' systems. */
@@ -31,7 +27,7 @@ export interface SkinEffectsMenuProps {
   /** The clip playing, its hash and name, and an empty hash for the bind pose. */
   readonly clip: string;
   readonly clipName: string | null;
-  readonly idle: readonly HeldIdle[];
+  readonly idle: readonly WornEffect[];
   readonly cues: readonly ParticleCue[];
   /** The pose the viewport plays, which the handed rigs ride, and null while it loads. */
   readonly pose: Pose | null;
@@ -66,11 +62,16 @@ function EffectsMenu({
   const hashes = [...idle.map((each) => each.system), ...cues.map((cue) => cue.system)];
   const names = useQuery(spellQueries.effects(sandbox, document, hashes));
   const openEffect = useOpenEffect();
+  const client = useQueryClient();
 
-  const targetOf = (system: string, source: AssetRef | null): EffectTarget => {
+  /* The tab opens the bin that declares the system, which the read of `document` found. */
+  const targetOf = async (system: string): Promise<EffectTarget> => {
+    const declaring = await client
+      .fetchQuery(declaringQueries.object(document, system))
+      .catch(() => null);
     const declared = names.data?.objects[system];
     return {
-      asset: source ?? asset,
+      asset: declaring ?? asset,
       entry: system,
       path: declared?.path ?? system,
       file: declared?.declarations[0]?.file ?? system,
@@ -78,11 +79,12 @@ function EffectsMenu({
   };
   const leafOf = (system: string) => names.data?.objects[system]?.path.split("/").at(-1) ?? system;
 
-  const openIdle = ({ effect, system }: HeldIdle, event: MouseEvent) => {
-    const rig: RigModel = { ...idleRig(pose, effect, scale), life: "continuous" };
+  const openIdle = ({ effect, system }: WornEffect, event: MouseEvent) => {
+    const rig: RigModel = { ...jointRig(pose, effect, scale), life: "continuous" };
     const host: HostHint = { skin, clip, offset: 0 };
     const label = m.workshop_bin_vfx_context_idle_label({ bone: effect.bone });
-    openEffect(targetOf(system, null), rig, label, clickIntent(event), host);
+    const intent = clickIntent(event);
+    void targetOf(system).then((target) => openEffect(target, rig, label, intent, host));
   };
   const openCue = (cue: ParticleCue, event: MouseEvent) => {
     const base = cueRig(pose, cue, scale);
@@ -94,7 +96,8 @@ function EffectsMenu({
       clip: clipName ?? clip,
       time: cue.at.toFixed(2),
     });
-    openEffect(targetOf(cue.system, cue.source), rig, label, clickIntent(event), host);
+    const intent = clickIntent(event);
+    void targetOf(cue.system).then((target) => openEffect(target, rig, label, intent, host));
   };
 
   const action = m.workshop_bin_vfx_open_effect_action();
@@ -108,10 +111,7 @@ function EffectsMenu({
           <Menu.Group>
             <Menu.GroupLabel>{m.workshop_bin_mesh_preview_idle_effects_label()}</Menu.GroupLabel>
             {idle.map((held) => (
-              <Menu.Item
-                key={`${held.effect.effectKey}:${held.system}`}
-                onClick={(event) => openIdle(held, event)}
-              >
+              <Menu.Item key={held.key} onClick={(event) => openIdle(held, event)}>
                 <EffectLine name={leafOf(held.system)} where={held.effect.bone} />
               </Menu.Item>
             ))}

@@ -166,6 +166,7 @@ export function skin(over: Partial<SkinModel> = {}): SkinModel {
     selfIllumination: 0,
     animationGraph: null,
     idleEffects: [],
+    persistentConditions: [],
     effectSystems: [],
     poseModifiers: [],
     sockets: [],

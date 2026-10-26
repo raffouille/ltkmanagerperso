@@ -42,18 +42,13 @@ export function ClipsHost({ view, entry, className }: ClipsHostProps) {
  * finds, with the skin's skeleton naming the joints a mask weighs.
  */
 function SkinClips({ view, entry }: { view: ViewContext; entry: string }) {
-  const { skin, source, opener } = useSkinGraphSource(view.document, view.asset, entry);
+  const { skin, source } = useSkinGraphSource(view.document, entry);
   const skeleton = useQuery(viewportQueries.skeleton(skin.data?.skeleton?.asset ?? null));
   const joints = useMemo(
     () => skeleton.data?.joints.map((joint) => joint.name) ?? null,
     [skeleton.data],
   );
-  return (
-    <>
-      {opener}
-      <ClipsPane source={source} joints={joints} />
-    </>
-  );
+  return <ClipsPane source={source} joints={joints} />;
 }
 
 /**

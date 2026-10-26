@@ -9,10 +9,10 @@
 
 use crate::mods::StorageLayout as _;
 use fs_err as fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Name of the marker holding the app version that last built these overlays.
-const BUILD_VERSION_MARKER: &str = ".overlay-build-version";
+pub(crate) const BUILD_VERSION_MARKER: &str = ".overlay-build-version";
 
 /// Overlay-artifact lifecycle on a library's storage directory.
 pub(crate) trait OverlayStorageExt {
@@ -81,38 +81,41 @@ impl OverlayStorageExt for Path {
     }
 }
 
-/// Remove a profile's cached overlay artifacts. The next build starts clean.
+/// Returns the paths of the cached overlay artifacts under `profile_dir`, present or not.
 ///
-/// The patched-WAD `overlay/` tree, the `overlay.json` state file and the
-/// `override_meta.bin` metadata cache always go. `game_index.bin` goes only
-/// under `include_game_index`. That cache is expensive to rebuild, and the game
-/// fingerprint validates it independently of the app version.
-pub(super) fn purge_overlay_artifacts(profile_dir: &Path, include_game_index: bool) {
-    let overlay_dir = profile_dir.join("overlay");
-    if overlay_dir.exists()
-        && let Err(e) = fs::remove_dir_all(&overlay_dir)
-    {
-        tracing::warn!(
-            "Failed to remove overlay directory {}: {}",
-            overlay_dir.display(),
-            e
-        );
-    }
-
-    let mut files = vec![
+/// The patched-WAD `overlay/` tree, the `overlay.json` state file and the `override_meta.bin`
+/// metadata cache are always listed. `game_index.bin` is listed only under `include_game_index`.
+/// That cache is expensive to rebuild, and the game fingerprint validates it independently of
+/// the app version.
+pub(crate) fn overlay_artifacts(profile_dir: &Path, include_game_index: bool) -> Vec<PathBuf> {
+    let mut paths = vec![
+        profile_dir.join("overlay"),
         profile_dir.join("overlay.json"),
         profile_dir.join("override_meta.bin"),
     ];
     if include_game_index {
-        files.push(profile_dir.join("game_index.bin"));
+        paths.push(profile_dir.join("game_index.bin"));
     }
-    for file in files {
-        if file.exists()
-            && let Err(e) = fs::remove_file(&file)
-        {
+    paths
+}
+
+/// Remove a profile's cached overlay artifacts, as [`overlay_artifacts`] lists them.
+///
+/// The next build starts clean.
+pub(super) fn purge_overlay_artifacts(profile_dir: &Path, include_game_index: bool) {
+    for path in overlay_artifacts(profile_dir, include_game_index) {
+        let removed = if path.is_dir() {
+            fs::remove_dir_all(&path)
+        } else if path.exists() {
+            fs::remove_file(&path)
+        } else {
+            continue;
+        };
+
+        if let Err(e) = removed {
             tracing::warn!(
                 "Failed to remove overlay artifact {}: {}",
-                file.display(),
+                path.display(),
                 e
             );
         }

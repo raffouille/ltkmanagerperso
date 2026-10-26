@@ -14,9 +14,10 @@ fn builder() -> Builder<Wry> {
     use ltk_manager_base::events::LayoutMigrationReport;
     use ltk_manager_base::events::ReferenceWalkProgress;
     use ltk_manager_base::events::{
-        ExportProgress, ExtractProgress, FantomeImportProgress, GitImportProgress,
-        HashtableSyncProgress, HealthSweepProgress, InstallProgress, LayoutMigrationProgress,
-        MigrationProgress, ModRepairProgress, ModStorageProgress, OverlayProgress,
+        DataMoveProgress, ExportProgress, ExtractProgress, FantomeImportProgress,
+        GitImportProgress, HashtableSyncProgress, HealthSweepProgress, InstallProgress,
+        LayoutMigrationProgress, MigrationProgress, ModRepairProgress, ModStorageProgress,
+        OverlayProgress,
     };
     use ltk_manager_base::events::{
         LaunchProgress, SessionChanged, SessionEnded, SessionGameRunning, SessionStarted,
@@ -32,6 +33,7 @@ fn builder() -> Builder<Wry> {
     Builder::<Wry>::new()
         .types(&crate::services::types())
         // Event payloads, which no command signature reaches.
+        .typ::<DataMoveProgress>()
         .typ::<ExportProgress>()
         .typ::<ExtractProgress>()
         .typ::<FantomeImportProgress>()

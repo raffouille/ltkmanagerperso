@@ -55,15 +55,15 @@ fn build_reads_a_prop_and_a_patch_and_skips_what_will_not_read() {
                 "data/skin0.bin"
             ),
         ],
-        "files in the game index's tree order, a patch's added objects as rows, its patch record not"
+        "files in path order, a patch's added objects as rows, its patch record not"
     );
 
     let stats = index.stats();
     assert_eq!(stats.archives, 1);
-    assert_eq!(stats.files, 3, "every named .bin chunk, read or not");
+    assert_eq!(stats.bins, 3, "every named .bin chunk, read or not");
     assert_eq!(stats.sniffed, 0, "every chunk was named");
-    assert_eq!(stats.rows, 3);
-    assert_eq!(stats.skipped, 1, "the chunk that would not read");
+    assert_eq!(stats.declarations, 3);
+    assert_eq!(stats.skipped_chunks, 1, "the chunk that would not read");
     assert_eq!(stats.workers, 1, "one archive is one job");
 }
 
@@ -96,12 +96,10 @@ fn a_bare_named_chunk_is_read_under_its_name_when_its_magic_is_a_bins() {
     );
 
     let stats = index.stats();
-    assert_eq!(stats.files, 1, "the bare bin alone");
-    assert_eq!(
-        stats.sniffed, 0,
-        "a bare chunk is named, so not counted as sniffed"
-    );
-    assert_eq!(stats.skipped, 0, "a bare non-bin is not a skip");
+    assert_eq!(stats.bins, 1, "the bare bin alone");
+    assert_eq!(stats.sniffed, 2, "both bare chunks were sniffed");
+    assert_eq!(stats.sniffed_bins, 1, "one of them was a bin");
+    assert_eq!(stats.skipped_chunks, 0, "a bare non-bin is not a skip");
 }
 
 #[test]
@@ -119,8 +117,11 @@ fn an_unnamed_chunk_is_sniffed_and_read_only_when_its_magic_is_a_bins() {
     ];
     let tmp = game_with(&[("Aatrox.wad.client", chunks)]);
     let archives = GameArchives::at(tmp.path());
-    let game = GameIndex::build(&archives, &resolver_for(&["data/named.bin"])).unwrap();
-    let index = ObjectIndex::build(&game, &archives, 1, &|| false).unwrap();
+    let chunks = archives.chunk_index(None).unwrap();
+    let resolver = resolver_for(&["data/named.bin"]);
+    let names = TestNames::over(&[], &[]).with_files(&["data/named.bin"]);
+    let index =
+        ObjectIndex::build(&chunks, &ChunkPaths(&resolver), &names, 1, &|| false, None).unwrap();
     let secret = WadHash::hash_str("data/secret.bin");
 
     assert_eq!(
@@ -134,9 +135,9 @@ fn an_unnamed_chunk_is_sniffed_and_read_only_when_its_magic_is_a_bins() {
 
     let stats = index.stats();
     assert_eq!(stats.sniffed, 2, "both unnamed chunks were sniffed");
-    assert_eq!(stats.unnamed_bins, 1, "one of them was a bin");
-    assert_eq!(stats.files, 2, "the named bin and the sniffed one");
-    assert_eq!(stats.skipped, 0, "a non-bin sniffed is not a skip");
+    assert_eq!(stats.sniffed_bins, 1, "one of them was a bin");
+    assert_eq!(stats.bins, 2, "the named bin and the sniffed one");
+    assert_eq!(stats.skipped_chunks, 0, "a non-bin sniffed is not a skip");
 
     let hit = &index
         .search(&hex(BinHash::hash_str("characters/secret")), || false)
@@ -154,12 +155,13 @@ fn a_sniffed_file_takes_the_name_a_later_table_gives_it() {
     )];
     let tmp = game_with(&[("Aatrox.wad.client", chunks)]);
     let archives = GameArchives::at(tmp.path());
-    let game = GameIndex::build(&archives, &resolver_for(&[])).unwrap();
-    let index = ObjectIndex::build(&game, &archives, 1, &|| false).unwrap();
-
+    let chunks = archives.chunk_index(None).unwrap();
+    let resolver = resolver_for(&[]);
     let names =
         TestNames::over(&["characters/secret"], &["Character"]).with_files(&["data/secret.bin"]);
-    let index = index.named(&names);
+
+    let index =
+        ObjectIndex::build(&chunks, &ChunkPaths(&resolver), &names, 1, &|| false, None).unwrap();
 
     assert_eq!(ranked(&index, "secret"), ["characters/secret"]);
     let hit = &index.search("secret", || false).hits[0];
@@ -175,8 +177,9 @@ fn a_build_that_was_called_off_stops_rather_than_finishing() {
     let chunks: &[Chunk<'_>] = &[("data/a.bin", prop(&[("characters/aatrox", "Character")]))];
     let tmp = game_with(&[("A.wad.client", chunks)]);
     let archives = GameArchives::at(tmp.path());
-    let game = GameIndex::build(&archives, &resolver_for(&["data/a.bin"])).unwrap();
+    let chunks = archives.chunk_index(None).unwrap();
+    let resolver = resolver_for(&["data/a.bin"]);
 
-    let built = ObjectIndex::build(&game, &archives, 1, &|| true);
+    let built = ObjectIndex::build(&chunks, &ChunkPaths(&resolver), &NoNames, 1, &|| true, None);
     assert!(built.is_err());
 }

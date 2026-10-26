@@ -1,5 +1,4 @@
 import { CubeIcon, CylinderIcon, type Icon, SphereIcon, SquareIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
 import { use, useState } from "react";
 import { Sphere, Vector3 } from "three";
 
@@ -13,7 +12,6 @@ import {
 } from "@/modules/viewport";
 import { twMerge } from "@/utils";
 
-import { vfxQueries } from "../../hooks/useVfxSystem";
 import {
   useEmbeddedMaterialPasses,
   useMaterialPasses,
@@ -59,14 +57,8 @@ export function MaterialShape({ material }: { material: MaterialRef | undefined 
   const [shape, setShape] = useState<PreviewShape>("sphere");
   const actions = use(GraphActionsContext);
   const document = actions?.document ?? null;
-  const system = useQuery({
-    ...vfxQueries.system(document ?? NO_DOCUMENT, actions?.entry ?? ""),
-    enabled: document !== null && actions?.entry !== "",
-  }).data;
-
   const linked = material?.type === "linked" ? material.entry : null;
-  const source = system?.materials.find((each) => each.hash === linked)?.source ?? null;
-  const linkedRead = useMaterialPasses(document, linked, source);
+  const linkedRead = useMaterialPasses(document, linked);
   const at =
     material?.type === "embedded" && document !== null
       ? { entry: material.entry ?? actions?.entry ?? "", path: material.path }

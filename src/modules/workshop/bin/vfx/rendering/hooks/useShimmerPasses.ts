@@ -40,7 +40,6 @@ export function useShimmerPasses(
   const linked = useMaterialPasses(
     document,
     shaders && mesh.material === null ? (mesh.linked?.hash ?? null) : null,
-    mesh.linked?.file ?? null,
   );
   const passes = mesh.material === null ? linked.passes : embedded.passes;
   const time = useRef(0);

@@ -1,6 +1,7 @@
 //! A declared type, and whether a value is written as it.
 
-use ltk_hash::BinHash;
+use ltk_hash::{BinHash, HashWidth};
+use ltk_meta::PropertyValueEnum;
 use ltk_meta::property::Kind;
 
 use super::Shape;
@@ -23,6 +24,8 @@ pub struct TypeSpec {
     pub class: Option<BinHash>,
     /// The item count a schema fixes a `List` at.
     pub size: Option<u32>,
+    /// The byte width of a `Hash`, where a row names one. `None` matches either width.
+    pub width: Option<HashWidth>,
 }
 
 impl TypeSpec {
@@ -35,19 +38,25 @@ impl TypeSpec {
             value: None,
             class: None,
             size: None,
+            width: None,
         }
     }
 
     /// The type `value` is written as, which is the `from` side of a
     /// schema-derived row.
     ///
+    /// A `Hash` names its width, which only the value carries.
+    ///
     /// # Errors
     ///
-    /// A requested header that does not decode.
+    /// A requested header that does not decode, or a `Hash` leaf that does not read.
     pub fn of<'a>(value: impl Declared<'a>) -> Result<Self, ltk_meta::Error> {
         let mut spec = Self::bare(value.kind());
         spec.key = value.key_kind()?;
         spec.value = value.item_kind()?;
+        if spec.kind == Kind::Hash {
+            spec.width = hash_width(value)?;
+        }
         Ok(spec)
     }
 
@@ -73,6 +82,10 @@ impl TypeSpec {
             Kind::Struct | Kind::Embedded => value
                 .class_hash()?
                 .is_some_and(|class| self.matches_class(class)),
+            Kind::Hash => match self.width {
+                Some(width) => hash_width(value)? == Some(width),
+                None => true,
+            },
             _ => true,
         })
     }
@@ -109,12 +122,25 @@ impl TypeSpec {
     #[must_use]
     pub fn label(&self) -> String {
         let kind = tag(self.kind);
-        match (self.key, self.value) {
-            (Some(key), Some(value)) => format!("{kind}[{},{}]", tag(key), tag(value)),
-            (None, Some(value)) => format!("{kind}[{}]", tag(value)),
+        match (self.key, self.value, self.width) {
+            (Some(key), Some(value), _) => format!("{kind}[{},{}]", tag(key), tag(value)),
+            (None, Some(value), _) => format!("{kind}[{}]", tag(value)),
+            (_, _, Some(HashWidth::W8)) => format!("{kind}[u64]"),
             _ => kind.to_owned(),
         }
     }
+}
+
+/// The width a `Hash` leaf is stored at, read out of the value. `None` for any other kind.
+///
+/// # Errors
+///
+/// Over a view, a leaf that does not read.
+fn hash_width<'a>(value: impl Declared<'a>) -> Result<Option<HashWidth>, ltk_meta::Error> {
+    Ok(match value.to_value()? {
+        PropertyValueEnum::Hash(hash) => Some(hash.value.width()),
+        _ => None,
+    })
 }
 
 impl From<Shape> for TypeSpec {
@@ -126,6 +152,7 @@ impl From<Shape> for TypeSpec {
             value: shape.value,
             class: None,
             size: None,
+            width: None,
         }
     }
 }
@@ -134,3 +161,6 @@ impl From<Shape> for TypeSpec {
 fn tag(kind: Kind) -> &'static str {
     PropertyKind::from(kind).tag()
 }
+
+#[cfg(test)]
+mod tests;

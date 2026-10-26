@@ -87,7 +87,7 @@ impl ObjectIndex {
         limit: usize,
         is_overtaken: impl Fn() -> bool,
     ) -> ObjectFindResult {
-        let unnamed = self.names.objects.is_empty() && !self.declared.rows.is_empty();
+        let unnamed = self.named == 0 && !self.rows().is_empty();
         let classes: Option<HashSet<BinHash>> =
             class.map(|term| self.classes_opened_by(term).into_iter().collect());
         if (query.is_none() && classes.is_none()) || classes.as_ref().is_some_and(HashSet::is_empty)
@@ -96,17 +96,17 @@ impl ObjectIndex {
         }
 
         let mut scan = FindScan::new(limit);
-        for object in &self.names.named {
+        for (path, object) in self.search.under("") {
             if scan.tick(&is_overtaken) {
                 break;
             }
-            if !self.declares_as(object.hash, classes.as_ref()) {
+            if !self.declares_as(object, classes.as_ref()) {
                 continue;
             }
-            let Some(ranges) = matched(query, &object.name) else {
+            let Some(ranges) = matched(query, path) else {
                 continue;
             };
-            scan.keep(|| self.find_hit(object.hash, &object.name, ranges));
+            scan.keep(|| self.find_hit(object, &self.object_name(object), ranges));
         }
         if !scan.overtaken {
             for object in self.unnamed_objects() {
@@ -135,10 +135,9 @@ impl ObjectIndex {
     /// Whether a declaration of `object` carries one of `classes`. Every object does with none.
     fn declares_as(&self, object: BinHash, classes: Option<&HashSet<BinHash>>) -> bool {
         classes.is_none_or(|classes| {
-            self.declared
-                .rows_of(object)
-                .iter()
-                .any(|at| classes.contains(&self.declared.rows[*at as usize].class))
+            self.index()
+                .declarations(object)
+                .any(|(_, row)| classes.contains(&row.class))
         })
     }
 

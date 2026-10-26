@@ -1,13 +1,13 @@
 //! One walk over a project's layers and the install, on the problems pass's bounded pool.
 
 use fs_err as fs;
+use std::collections::HashSet;
 use std::fmt::Write as _;
-use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Instant;
 
-use ltk_wad::hex_name;
+use ltk_wad::{WadHash, hex_name};
 use walkdir::WalkDir;
 
 use crate::bin_document::{EntryKey, HashPath, Lens, RowNames, Wanted, hex};
@@ -114,7 +114,7 @@ pub struct WalkRequest<'a> {
 #[derive(Debug)]
 enum Unit<'a> {
     Layer(&'a LayerBin),
-    Archive { wad: u32, files: Range<usize> },
+    Archive { wad: u32, files: Vec<usize> },
 }
 
 /// What a walk shares across its workers.
@@ -195,8 +195,15 @@ impl ObjectIndex {
         progress: impl Fn(ReferenceWalkProgress) + Sync,
     ) -> ReferenceResult {
         let started = Instant::now();
-        let units = self.units(request.layers);
-        let files = request.layers.len() + self.declared.files.len();
+        let chunks = request.target.chunks_in(self.terms());
+        let units = self.units(request.layers, &chunks);
+        let files: usize = units
+            .iter()
+            .map(|unit| match unit {
+                Unit::Layer(_) => 1,
+                Unit::Archive { files, .. } => files.len(),
+            })
+            .sum();
         let walked = Walked {
             budget: request.budget,
             is_overtaken,
@@ -215,9 +222,7 @@ impl ObjectIndex {
                 Unit::Layer(bin) => walk_layer(bin, &request.target, &walked)
                     .map(|hits| vec![(0, hits)])
                     .unwrap_or_default(),
-                Unit::Archive { wad, files } => {
-                    self.walk_archive(*wad, files.clone(), request, &walked)
-                }
+                Unit::Archive { wad, files } => self.walk_archive(*wad, files, request, &walked),
             },
         );
 
@@ -263,18 +268,22 @@ impl ObjectIndex {
         }
     }
 
-    /// The layers one job each, then one job per run of declaring files in one archive.
-    fn units<'a>(&self, layers: &'a [LayerBin]) -> Vec<Unit<'a>> {
+    /// The layers one job each, then one job per archive for its declaring files in `chunks`.
+    ///
+    /// An archive with no file to read has no job.
+    fn units<'a>(&self, layers: &'a [LayerBin], chunks: &HashSet<WadHash>) -> Vec<Unit<'a>> {
         let mut units: Vec<Unit<'a>> = layers.iter().map(Unit::Layer).collect();
         let files = &self.declared.files;
         let mut start = 0;
         while start < files.len() {
             let wad = files[start].wad;
             let end = start + files[start..].partition_point(|file| file.wad == wad);
-            units.push(Unit::Archive {
-                wad,
-                files: start..end,
-            });
+            let picked: Vec<usize> = (start..end)
+                .filter(|&at| chunks.contains(&files[at].path_hash))
+                .collect();
+            if !picked.is_empty() {
+                units.push(Unit::Archive { wad, files: picked });
+            }
             start = end;
         }
         units
@@ -291,7 +300,7 @@ impl ObjectIndex {
                         wad: self.declared.wads[*wad as usize].clone(),
                         path_hash: hex_name(file.path_hash),
                     },
-                    self.file_name(file),
+                    self.file_name(file.path_hash),
                 )
             }
         }
@@ -303,7 +312,7 @@ impl ObjectIndex {
     fn walk_archive<O, P>(
         &self,
         wad: u32,
-        files: Range<usize>,
+        files: &[usize],
         request: &WalkRequest<'_>,
         walked: &Walked<'_, O, P>,
     ) -> Vec<(usize, Vec<WalkHit>)>
@@ -328,7 +337,7 @@ impl ObjectIndex {
         };
 
         let mut found = Vec::new();
-        for at in files {
+        for &at in files {
             if walked.stopped() {
                 break;
             }

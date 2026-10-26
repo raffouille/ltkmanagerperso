@@ -12,8 +12,8 @@ import {
   type SpellPreview,
 } from "@/lib/tauri";
 
-import { assetKey } from "../../../preview/utils/assetRef";
 import { useSandbox } from "../../../sandbox/state/SandboxContext";
+import { declaringQueries } from "../../documents/api/declaringQueries";
 import { useBinDocument } from "../../documents/hooks/useBinDocument";
 import { Notice } from "../../shared/preview/Notice";
 import { skinQueries } from "../../skin/api/skinQueries";
@@ -66,7 +66,7 @@ function MissileRead({ document, entry, skin }: SkinSource & { skin: SkinSource 
 }
 
 function effectId(effect: EffectSystem): string {
-  return `${effect.key}:${effect.system}:${effect.source === null ? "own" : assetKey(effect.source)}`;
+  return `${effect.key}:${effect.system}`;
 }
 
 function MissileSetup({
@@ -112,9 +112,11 @@ function MissileSetup({
     }))
     .sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
   const selected = items.find((item) => item.value === (picked ?? suggested));
-  const target = effectTarget(effect, names.data?.objects);
   const hit = spellImpact(preview, effects, names.data?.objects);
-  const hitTarget = effectTarget(hit ?? undefined, names.data?.objects);
+  const declaring = useQuery(declaringQueries.object(skin.document, effect?.system ?? null));
+  const hitDeclaring = useQuery(declaringQueries.object(skin.document, hit?.system ?? null));
+  const target = effectTarget(effect, declaring.data ?? null, names.data?.objects);
+  const hitTarget = effectTarget(hit ?? undefined, hitDeclaring.data ?? null, names.data?.objects);
   const movement = preview.missile?.movement;
   let blocked: { title: string; description: string } | null = null;
   if (invalid)
@@ -230,23 +232,23 @@ function MissileSetup({
   );
 }
 
-/** The file that declares the picked effect's system, and null while it is unknown. */
+/**
+ * The tab target of the picked effect's system, in `asset`, the bin that declares it, and null
+ * while that bin is unknown. `objects` names the system and its file.
+ */
 function effectTarget(
   effect: EffectSystem | undefined,
+  asset: AssetRef | null,
   objects: DeclaredObjects["objects"] | undefined,
 ): EffectTarget | null {
-  if (effect === undefined) return null;
+  if (effect === undefined || asset === null) return null;
 
   const declared = objects?.[effect.system];
-  const declaration = declared?.declarations[0];
-  const asset = effect.source ?? declaration?.asset ?? null;
-  if (asset === null) return null;
-
   return {
     asset,
     entry: effect.system,
     path: declared?.path ?? effect.system,
-    file: declaration?.file ?? effect.system,
+    file: declared?.declarations[0]?.file ?? effect.system,
   };
 }
 
@@ -259,25 +261,7 @@ function EffectPreview({
   document: BinDocumentId;
   flight: NonNullable<ReturnType<typeof compileFlight>>;
 }) {
-  if (effect.source !== null)
-    return <ForeignEffect asset={effect.source} entry={effect.system} flight={flight} />;
   return <MissileViewport document={document} entry={effect.system} flight={flight} />;
-}
-
-function ForeignEffect({
-  asset,
-  entry,
-  flight,
-}: {
-  asset: AssetRef;
-  entry: string;
-  flight: NonNullable<ReturnType<typeof compileFlight>>;
-}) {
-  const { state, reopen } = useBinDocument(asset, entry);
-  if (state.status === "failed")
-    return <Failure message={errorSummary(state.error)} retry={reopen} />;
-  if (state.status !== "open") return <Notice text={m.workshop_spells_loading_label()} />;
-  return <MissileViewport document={state.handle.document} entry={entry} flight={flight} />;
 }
 
 function Failure({ message, retry }: { message: string; retry: () => void }) {

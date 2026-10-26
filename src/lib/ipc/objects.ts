@@ -8,9 +8,9 @@ export const commands = {
 	/**
 	 *  Build the object index, unless one is built or building.
 	 * 
-	 *  The game index is built first when it is not, because the object build is
-	 *  fed by it. The call returns once the build lands, and a build that fails
-	 *  leaves the failure in the state for a search to report.
+	 *  The build reads the chunk index of the game, from its cache when the cache
+	 *  matches the install. The call returns once the build lands, and a build that
+	 *  fails leaves the failure in the state for a search to report.
 	 */
 	warmObjectIndex: () => __TAURI_INVOKE<({ ok: true; value: null }) & { error?: never } | ({ ok: false; error: AppErrorResponse }) & { value?: never }>("plugin:objects|warm_object_index"),
 	/**  Drop the object index, and the result of any build still running. */

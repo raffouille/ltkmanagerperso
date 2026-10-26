@@ -105,6 +105,12 @@ export const api = {
   listForcibleMapSkins: settings.listForcibleMapSkins,
   listMapDecorations: settings.listMapDecorations,
   listChampionSkins: settings.listChampionSkins,
+  planDataMove: settings.planDataMove,
+  moveData: settings.moveData,
+  dataUsage: settings.dataUsage,
+  clearDataArea: settings.clearDataArea,
+  exportSettings: settings.exportSettings,
+  readSettingsBackup: settings.readSettingsBackup,
 
   // Mods
   getInstalledMods: library.getInstalledMods,
@@ -282,6 +288,7 @@ export const api = {
     classDocs: bin.classDocs,
     syncMetaDocs: bin.syncMetaDocs,
     readVfxSystem: preview.readVfxSystem,
+    locateObject: preview.locateObject,
     vfxChildTargets: preview.vfxChildTargets,
     vfxMissileSpells: preview.vfxMissileSpells,
     vfxTemplates: preview.vfxTemplates,

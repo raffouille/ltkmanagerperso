@@ -74,19 +74,3 @@ fn a_newer_build_outranks_the_result_of_an_older_one() {
     state.finish(new, Ok(ready()));
     assert!(matches!(state.snapshot(), ObjectIndexSnapshot::Ready(_)));
 }
-
-#[test]
-fn renaming_touches_a_ready_index_alone() {
-    let state = ObjectIndexState::<String>::default();
-    state.rename(|index| index.named(&TestNames::over(&[], &[])));
-    assert!(matches!(state.snapshot(), ObjectIndexSnapshot::Absent));
-
-    let ticket = state.begin().expect("nothing is building");
-    state.finish(ticket, Ok(ready()));
-    state.rename(|index| index.named(&TestNames::over(&["characters/aatrox"], &["Skin"])));
-
-    let ObjectIndexSnapshot::Ready(index) = state.snapshot() else {
-        panic!("renaming keeps the index ready");
-    };
-    assert_eq!(ranked(&index, "aatrox"), ["characters/aatrox"]);
-}

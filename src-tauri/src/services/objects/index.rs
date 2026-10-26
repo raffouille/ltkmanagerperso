@@ -2,13 +2,14 @@
 
 use crate::error::{AppError, AppErrorResponse, AppResult, IpcResult};
 use crate::events::TauriEventSink;
-use crate::services::game::index::{built_game_index, find_query};
+use crate::services::game::index::find_query;
 use crate::services::shared::document_assets;
 use crate::services::shared::off_thread;
 use crate::services::shared::overtaken;
 use crate::state::SettingsState;
 use ltk_hash::BinHash;
-use ltk_manager_assets::game_wads::GameArchives;
+use ltk_manager_assets::game_index::GameIndexState;
+use ltk_manager_assets::game_wads::{ChunkPaths, GameArchives};
 use ltk_manager_assets::hashtables::CacheNames;
 use ltk_manager_assets::hashtables::{
     BinHashTablesState, HashtableCache, WadPathResolver, WadPathResolverState,
@@ -22,9 +23,9 @@ use ltk_manager_base::generation::line;
 use ltk_manager_base::hashing::HexBinHash;
 use ltk_manager_bin::bin_document::{BinDocumentId, BinDocuments, BinObjectHeader};
 use ltk_manager_bin::object_index::{
-    self, layer_bins, parse_hash, BuildTicket, DeclaredObject, FileTarget, ObjectDirListing,
-    ObjectFindResult, ObjectIndex, ObjectIndexSnapshot, ObjectSearchResult, ReferenceResult,
-    WalkRequest, WalkTarget,
+    self, layer_bins, parse_hash, BuildTicket, DeclaredObject, FileTarget, NameSource, NoNames,
+    ObjectDirListing, ObjectFindResult, ObjectIndex, ObjectIndexSnapshot, ObjectSearchResult,
+    ReferenceResult, WalkRequest, WalkTarget,
 };
 use ltk_manager_bin::sandbox::SandboxRef;
 use ltk_manager_game::spell::{self, SpellCatalog};
@@ -37,6 +38,11 @@ use tauri::{AppHandle, Manager};
 
 /// The managed object index, keeping a failed build as the error the frontend reads.
 pub type ObjectIndexState = object_index::ObjectIndexState<AppErrorResponse>;
+
+/// Drops the object index, and the result of any build still running.
+pub(crate) fn clear_indexes(app: &AppHandle) {
+    app.state::<ObjectIndexState>().clear();
+}
 
 /// A response of the object index, given the slot the index is in.
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -69,57 +75,75 @@ fn with_ready_index<T>(
 
 /// Build the object index, unless one is built or building.
 ///
-/// The game index is built first when it is not, because the object build is
-/// fed by it. The call returns once the build lands, and a build that fails
-/// leaves the failure in the state for a search to report.
+/// The build reads the chunk index of the game, from its cache when the cache
+/// matches the install. The call returns once the build lands, and a build that
+/// fails leaves the failure in the state for a search to report.
 #[tauri::command]
 #[specta::specta]
 pub async fn warm_object_index(app_handle: AppHandle) -> IpcResult<()> {
-    let config = app_handle.state::<SettingsState>().config();
-
     off_thread(move || {
-        let state = app_handle.state::<ObjectIndexState>();
-        let Some(ticket) = state.begin() else {
-            return Ok(());
-        };
-        let built = build(&app_handle, &config, &state, ticket);
-        state.finish(ticket, built.map_err(AppErrorResponse::from));
+        warm(&app_handle);
         Ok(())
     })
     .await
 }
 
+/// Build the object index on the calling thread, unless one is built or building.
+fn warm(app: &AppHandle) {
+    let config = app.state::<SettingsState>().config();
+    let state = app.state::<ObjectIndexState>();
+    let Some(ticket) = state.begin() else {
+        return;
+    };
+    let built = build(app, &config, &state, ticket);
+    state.finish(ticket, built.map_err(AppErrorResponse::from));
+}
+
 /// The index over the install `config` names, named through the shared tables.
 ///
-/// A cache the machine never synced names nothing, and the index is built
-/// unnamed rather than not at all: a search then says so.
+/// The term index and the name sheets load from `game-index` under the app cache
+/// directory when they match. A cache the machine never synced names nothing, and
+/// the index is built unnamed rather than not at all: a search then says so.
 fn build(
     app: &AppHandle,
     config: &Config,
     state: &ObjectIndexState,
     ticket: BuildTicket,
 ) -> AppResult<ObjectIndex> {
-    let (game, archives) = built_game_index(app, config)?;
-    let index = ObjectIndex::build(&game, &archives, files_at_once(), &|| {
-        !state.is_current(ticket)
-    })?;
-
-    let cache = match HashtableCache::shared() {
-        Ok(cache) => cache,
-        Err(e) => {
-            tracing::debug!("No hashtable cache to name the object index from: {e}");
-            return Ok(index);
-        }
-    };
+    let started = Instant::now();
+    let archives = GameArchives::resolve(config)?;
+    let chunks = app.state::<GameIndexState>().chunk_index(&archives)?;
     let wad = app.state::<Arc<WadPathResolverState>>().get();
-    Ok(index.named(&CacheNames::new(&cache.bin_tables(), &wad)))
+    let names = HashtableCache::shared()
+        .inspect_err(|e| tracing::debug!("No hashtable cache to name the object index from: {e}"))
+        .ok()
+        .map(|cache| cache.names());
+    let cache = crate::state::game_index_cache_dir(app);
+
+    let index = ObjectIndex::build(
+        &chunks,
+        &ChunkPaths(wad.tables()),
+        names.as_ref().map_or(&NoNames as &dyn NameSource, |names| {
+            names as &dyn NameSource
+        }),
+        files_at_once(),
+        &|| !state.is_current(ticket),
+        cache.as_deref(),
+    )?;
+
+    tracing::info!(
+        declarations = index.stats().declarations,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "Warmed the object index"
+    );
+    Ok(index)
 }
 
 /// Drop the object index, and the result of any build still running.
 #[tauri::command]
 #[specta::specta]
 pub async fn drop_object_index(app_handle: AppHandle) -> IpcResult<()> {
-    app_handle.state::<ObjectIndexState>().clear();
+    clear_indexes(&app_handle);
     IpcResult::ok(())
 }
 
@@ -437,6 +461,7 @@ fn walk(
     if in_flight.as_ref().is_some_and(|walk| walk.is(&budget)) {
         *in_flight = None;
     }
+    drop(in_flight);
     Ok(result)
 }
 
@@ -615,23 +640,23 @@ fn own_file_name(asset: &AssetRef, wad: &WadPathResolver) -> String {
     }
 }
 
-/// Resolve the index's names again out of the tables a sync just installed.
+/// Build the index again with the names of the tables a sync just installed.
 ///
-/// The rows are the install's and stay. A slot that holds no ready index is
-/// left alone.
+/// The term index loads from its cache, and the name sheets of the tables
+/// that changed are cut again. A slot that holds no index and runs no build
+/// is left alone.
 pub fn rename_after_sync(app: &AppHandle) {
-    let cache = match HashtableCache::shared() {
-        Ok(cache) => cache,
-        Err(e) => {
-            tracing::debug!("No hashtable cache to rename the object index from: {e}");
-            return;
-        }
-    };
-    let wad = app.state::<Arc<WadPathResolverState>>().get();
-    let bin = cache.bin_tables();
-    let names = CacheNames::new(&bin, &wad);
-    app.state::<ObjectIndexState>()
-        .rename(|index| index.named(&names));
+    let held = matches!(
+        app.state::<ObjectIndexState>().snapshot(),
+        ObjectIndexSnapshot::Ready(_) | ObjectIndexSnapshot::Building
+    );
+    if !held {
+        return;
+    }
+
+    clear_indexes(app);
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || warm(&app));
 }
 
 #[cfg(test)]

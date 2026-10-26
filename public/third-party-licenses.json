@@ -2349,7 +2349,7 @@
     },
     {
       "name": "ltk-manager",
-      "version": "1.29.0",
+      "version": "1.30.5",
       "url": "https://github.com/LeagueToolkit/ltk-manager",
       "licenses": [
         64
@@ -2476,6 +2476,14 @@
     {
       "name": "ltk_game_index",
       "version": "0.1.5",
+      "url": "https://github.com/LeagueToolkit/league-mod",
+      "licenses": [
+        45
+      ]
+    },
+    {
+      "name": "ltk_game_index",
+      "version": "0.2.0",
       "url": "https://github.com/LeagueToolkit/league-mod",
       "licenses": [
         45

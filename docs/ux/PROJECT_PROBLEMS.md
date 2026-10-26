@@ -4,6 +4,9 @@
 
 | Date       | Change                                                       |
 | ---------- | ------------------------------------------------------------ |
+| 2026-10-25 | `bin/skinhack` reports a base skin built from another skin   |
+| 2026-10-22 | The material name table claims live patch 16.21              |
+| 2026-10-21 | `bin/property-type` rehashes a material name for patch 16.22 |
 | 2026-10-16 | A finding opens the setting that its rule links to           |
 | 2026-10-16 | `bin/base-skin-copy` reports a copy of the base skin bin     |
 | 2026-10-15 | `bin/texture-file` reports a non-image texture file          |
@@ -11,9 +14,6 @@
 | 2026-10-02 | Check only packed files, and report packed working files     |
 | 2026-09-30 | Name each unchecked file once, with its reason               |
 | 2026-09-17 | Open a bin finding at the node it names                      |
-| 2026-09-05 | Point the lazy-read link at the reader that landed           |
-| 2026-09-01 | The meta schema judges, and a table speaks for later builds  |
-| 2026-08-30 | A bin is recognized by its content, and repaired at its hash |
 
 Each edit of this document adds a row at the top. The table keeps the last ten rows.
 
@@ -53,13 +53,14 @@ This table holds every major feature of Problems. A status word has one meaning.
 | Bins found by magic  | Available | A chunk or hex file no table names is typed by its first bytes         |
 | Bin retype rule      | Available | `bin/property-type`. The first rule, and the urgent one                |
 | The meta schema      | Available | The wiki database. Judges the installed build, and ships a snapshot    |
-| The migration tables | Available | 395 rows, `include_str!` into the core crate. What a later build wants |
+| The migration tables | Available | One file per build, `include_str!` into the core crate. 397 rows       |
 | Texture size rule    | Available | `tex/block-alignment`. A confirmed crash, and it repairs               |
 | Audio bank rule      | Available | `audio/bank-version`. A bank the game drops without a word             |
 | Working file rule    | Available | `project/working-file`. A packed source file, with no ignore rules     |
 | Object link rule     | Available | `bin/object-link`. A link to an object no mod or game bin defines      |
 | Texture file rule    | Available | `bin/texture-file`. A texture property that names a non-image file     |
 | Base skin copy rule  | Available | `bin/base-skin-copy`. A skin bin that is a copy of the base skin       |
+| Skinhack rule        | Available | `bin/skinhack`. A base skin with another skin's mesh or name           |
 | Repair by removal    | Available | A fix may delete a file, where something still answers for it          |
 | The fix preview      | Available | The before value and the after value, for each problem                 |
 | Preserved names      | Available | A fix writes what it hashes into the mod's own `hashes/`               |
@@ -841,6 +842,11 @@ deployed is not part of that answer at either setting.
 answer on the run, and calls `check` either way. What a check waits for is the check's own
 business, and a rule holding several claims can have taken some of them and still be waiting on
 the rest.
+
+**A rule that holds several tables waits only while the game has reached none of them.** Once
+the game is on the first table's build, the rule is active, because that table's findings are
+live. A finding of a later table is drawn at warning with its fix withheld, and a fix run skips
+it, so a repair never writes a type the installed game does not read.
 
 ## Applying a fix
 

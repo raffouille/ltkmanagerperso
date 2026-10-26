@@ -12,7 +12,7 @@ fn warming_builds_the_index_before_anything_asks() {
     content.warm();
 
     let index = content.chunks.get().expect("an index after warming");
-    assert!(index.entries.is_empty());
+    assert!(index.as_ref().is_some_and(ChunkIndex::is_empty));
     assert!(!content.contains(WadHash(1)));
 }
 
@@ -28,7 +28,7 @@ fn warming_an_install_with_no_archives_still_answers() {
 }
 
 #[test]
-fn chunk_in_two_archives_reads_from_last_archive_walked() {
+fn chunk_in_two_archives_reads_from_first_archive() {
     use ltk_hash::Hash as _;
     use ltk_manager_assets::test_util::place_game_wad;
 
@@ -42,8 +42,8 @@ fn chunk_in_two_archives_reads_from_last_archive_walked() {
     let content = InstalledContent::at(&root.path().join("league").join("Game"));
 
     let shared = WadHash::hash_str("shared.bin");
-    assert_eq!(content.size(shared), Some(4));
-    assert_eq!(content.read(shared), Ok(Some(b"bbbb".to_vec())));
+    assert_eq!(content.size(shared), Some(2));
+    assert_eq!(content.read(shared), Ok(Some(b"aa".to_vec())));
     assert_eq!(content.size(WadHash::hash_str("only_a.bin")), Some(1));
     assert!(!content.contains(WadHash::hash_str("missing.bin")));
 }
@@ -73,11 +73,15 @@ fn index_objects_returns_declaring_chunk() {
     let mut tables = LayeredHashDb::new();
     tables.insert(WadHash::hash_str(SKIN_BIN).0, SKIN_BIN);
 
-    let objects = index_objects(&archives, &tables).expect("an index");
+    let chunks = archives.chunk_index(None).expect("a chunk index");
+    let objects = index_objects(&chunks, &tables).expect("an index");
 
     assert_eq!(
-        objects.declaring_chunks(skin).collect::<Vec<_>>(),
+        objects
+            .declarations(skin)
+            .map(|(_, row)| row.chunk)
+            .collect::<Vec<_>>(),
         [WadHash::hash_str(SKIN_BIN)]
     );
-    assert_eq!(objects.declaring_chunks(BinHash(1)).count(), 0);
+    assert_eq!(objects.declarations(BinHash(1)).count(), 0);
 }

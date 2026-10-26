@@ -60,7 +60,6 @@ import {
   usePreviewShaders,
   usePreviewSun,
   useSetPreviewDisplay,
-  usePreviewEffectsQuality,
 } from "@/stores";
 
 import { assetKey } from "../../../preview/utils/assetRef";
@@ -85,7 +84,6 @@ import {
   SplitToggle,
   ViewportControls,
 } from "../../shared/preview/ViewportControls";
-import { vfxQueries } from "../../vfx/hooks/useVfxSystem";
 import { Passes } from "../../vfx/rendering/components/Passes";
 import { passesOf } from "../../vfx/rendering/utils/passes";
 import { skinQueries } from "../api/skinQueries";
@@ -95,16 +93,17 @@ import { useJointPick } from "../hooks/useJointPick";
 import { useSkinDynamics } from "../hooks/useSkinDynamics";
 import { useSkinKeys } from "../hooks/useSkinKeys";
 import { useSkinPrograms } from "../hooks/useSkinPrograms";
+import { useWornEffects } from "../hooks/useWornEffects";
 import { overriddenHidden, SkinChoiceContext, useSkinChoice } from "../state/skinChoice";
 import {
   clipFrameSeconds,
   hiddenAt,
-  particleCues,
   snapCues,
   timedSteps,
   type VisibilityEntry,
   visibilityTimeline,
 } from "../utils/clipEvents";
+import { conditionedHidden } from "../utils/conditionScene";
 import { foldedTime } from "../utils/follow";
 import {
   BIND_POSE,
@@ -115,14 +114,13 @@ import {
   parameterValues,
   playableClips,
   playlistOf,
-  systemModel,
   textureAssets,
 } from "../utils/skinScene";
 import { socketDragEdits } from "../utils/socketEdits";
 import { BakeTangentsButton } from "./BakeTangentsButton";
 import { ClipEffect } from "./ClipEffect";
 import { BEFORE_THE_SCENE, Clock } from "./Clock";
-import { IdleEffect } from "./IdleEffect";
+import { JointEffect } from "./JointEffect";
 import { PhysicsMenu } from "./PhysicsMenu";
 import { SkinEffectsMenu } from "./SkinEffectsMenu";
 import { SkinPhysicsOverlay } from "./SkinPhysicsOverlay";
@@ -145,13 +143,9 @@ export interface SkinViewportProps {
 
 /**
  * One skin on its skeleton, posed by a clip of its graph and wearing its idle effects.
- *
- * A graph the index says another file declares is read through a second handle, as the
- * idle effect table reads a foreign resolver. Every other graph is read through the
- * skin's own document, which looks in the files it links.
  */
 export default function SkinViewport({ document, asset, entry, onNotOpen }: SkinViewportProps) {
-  const { skin: read, source, opener } = useSkinGraphSource(document, asset, entry);
+  const { skin: read, source } = useSkinGraphSource(document, entry);
   /* The store evicts the least recently used asset at capacity, so a tab left in the
      background can hold an id that no longer reads. A reopen issues a fresh one. */
   const notOpen = read.error?.code === "BIN_NOT_OPEN";
@@ -165,13 +159,8 @@ export default function SkinViewport({ document, asset, entry, onNotOpen }: Skin
     return <Notice text={m.workshop_bin_mesh_preview_loading_label()} />;
   }
 
-  /* The scene stays mounted while the graph's declaration answers, so the canvas and the
-     textures it holds are not built twice. */
   return (
-    <>
-      {opener}
-      <SkinScene skin={read.data} document={document} asset={asset} source={source} entry={entry} />
-    </>
+    <SkinScene skin={read.data} document={document} asset={asset} source={source} entry={entry} />
   );
 }
 
@@ -191,6 +180,7 @@ function SkinScene({ skin, document, asset, source, entry }: SkinSceneProps) {
   const { clock, picked, setPicked, playing, setPlaying, speed, setSpeed } =
     use(SkinChoiceContext) ?? own;
   const { effects, setEffects, submesh, pickSubmesh, mask } = use(SkinChoiceContext) ?? own;
+  const { conditions } = use(SkinChoiceContext) ?? own;
   const { parameter, setParameter, shown, setShown, resetShown } = use(SkinChoiceContext) ?? own;
   const { simulatedRate, setSimulatedRate, muted } = use(SkinChoiceContext) ?? own;
   const { joint, setJoint, socket: movedSocket, socketMode } = use(SkinChoiceContext) ?? own;
@@ -343,38 +333,22 @@ function SkinScene({ skin, document, asset, source, entry }: SkinSceneProps) {
     [skin.hidden, submeshes, timed],
   );
   const [cued, setHidden] = useState<readonly string[]>(skin.hidden);
-  const hidden = useMemo(() => overriddenHidden(cued, shown), [cued, shown]);
+  const hidden = useMemo(
+    () =>
+      overriddenHidden(
+        conditionedHidden(cued, submeshes, skin.persistentConditions, conditions),
+        shown,
+      ),
+    [cued, submeshes, skin.persistentConditions, conditions, shown],
+  );
   /* The names are painted on a canvas over the scene, mounted here where the DOM is. */
   const [labels, setLabels] = useState<HTMLCanvasElement | null>(null);
-  const cues = useMemo(() => particleCues(timed, skin.effectSystems), [timed, skin.effectSystems]);
-  /* A system a linked file declares is read through a handle on that file, held open
-     beside the skin's own document as a foreign graph is. */
-  const sources = useMemo(() => {
-    const seen = new Map<string, AssetRef>();
-    for (const cue of cues) if (cue.source !== null) seen.set(assetKey(cue.source), cue.source);
-    return [...seen.entries()];
-  }, [cues]);
-  const [opened, setOpened] = useState<ReadonlyMap<string, BinDocumentId>>(() => new Map());
-  const openSource = useCallback((id: string, handle: BinDocumentId | null) => {
-    setOpened((held) => {
-      const next = new Map(held);
-      if (handle === null) next.delete(id);
-      else next.set(id, handle);
-      return next;
-    });
-  }, []);
-  const quality = usePreviewEffectsQuality();
-  const cueModels = useQueries({
-    queries: cues.map((cue) => {
-      const handle = cue.source === null ? document : (opened.get(assetKey(cue.source)) ?? null);
-      if (handle === null) return { ...vfxQueries.system(document, cue.system), enabled: false };
-      return vfxQueries.system(handle, cue.system);
-    }),
-    combine: (results) =>
-      results.map((result) =>
-        result.data === undefined ? null : systemModel(result.data, quality),
-      ),
-  });
+  const { cues, cueModels, idle, drawn, drawnModels, worn, loaded } = useWornEffects(
+    document,
+    skin,
+    timed,
+    conditions,
+  );
 
   const assets = useMemo(() => textureAssets(skin), [skin]);
   const textures = useAssetTextures(assets);
@@ -410,21 +384,6 @@ function SkinScene({ skin, document, asset, source, entry }: SkinSceneProps) {
 
   const keys = useSkinKeys({ clock, playing, setPlaying, speed, setSpeed, fit: refit });
 
-  const idle = useMemo(
-    () =>
-      skin.idleEffects.flatMap((effect) =>
-        effect.system === null ? [] : [{ effect, system: effect.system }],
-      ),
-    [skin],
-  );
-  const systems = useQueries({
-    queries: idle.map(({ system }) => vfxQueries.system(document, system)),
-  });
-  const models = systems.map((query) =>
-    query.data === undefined ? null : systemModel(query.data, quality),
-  );
-  const worn = [...models, ...cueModels];
-  const loaded = worn.map((model) => (model === null ? "-" : "+")).join("");
   /* The map's systems play whatever the skin's own switch says, and stay out of `loaded`,
      whose change is a seek of every effect the skin wears. */
   const played = [...(effects ? worn : []), ...mapParticles.map((group) => group.system)];
@@ -460,9 +419,6 @@ function SkinScene({ skin, document, asset, source, entry }: SkinSceneProps) {
 
   return (
     <>
-      {sources.map(([id, asset]) => (
-        <SourceOpener key={id} id={id} asset={asset} onOpen={openSource} />
-      ))}
       {mapFile.source !== null && (
         /* Keyed, so a change of map lets the last map's handle go before the next answers. */
         <DocumentOpener
@@ -538,12 +494,12 @@ function SkinScene({ skin, document, asset, source, entry }: SkinSceneProps) {
               onSubmeshPick={picks.pickSubmesh}
             >
               {effects &&
-                idle.map(({ effect }, at) => {
-                  const system = models[at];
-                  if (system === null) return null;
+                drawn.map(({ key, effect }, at) => {
+                  const system = drawnModels[at];
+                  if (system === null || system === undefined) return null;
                   return (
-                    <IdleEffect
-                      key={`${at}:${effect.effectKey}`}
+                    <JointEffect
+                      key={key}
                       effect={effect}
                       system={system}
                       pose={pose}
@@ -954,19 +910,6 @@ function ArmatureMenu() {
       </Menu.Content>
     </SplitToggle>
   );
-}
-
-interface SourceOpenerProps {
-  /** What the owner keys the handle under. */
-  readonly id: string;
-  readonly asset: AssetRef;
-  readonly onOpen: (id: string, handle: BinDocumentId | null) => void;
-}
-
-/** One linked file a cue's system lives in, held open and reported under its key. */
-function SourceOpener({ id, asset, onOpen }: SourceOpenerProps) {
-  const report = useCallback((handle: BinDocumentId | null) => onOpen(id, handle), [id, onOpen]);
-  return <DocumentOpener asset={asset} onOpen={report} />;
 }
 
 interface SubmeshMenuProps {

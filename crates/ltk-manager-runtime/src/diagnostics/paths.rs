@@ -80,30 +80,6 @@ fn probe_writable(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "windows")]
-fn free_disk_bytes(path: &Path) -> Option<u64> {
-    use std::ptr;
-    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
-
-    let wide = ltk_manager_base::platform::windows::path_to_wide(path);
-    let mut free: u64 = 0;
-    // SAFETY: null-terminated wide string; `free` is a stack u64.
-    let ok = unsafe {
-        GetDiskFreeSpaceExW(
-            wide.as_ptr(),
-            &mut free as *mut u64,
-            ptr::null_mut(),
-            ptr::null_mut(),
-        )
-    };
-    if ok == 0 { None } else { Some(free) }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn free_disk_bytes(_path: &Path) -> Option<u64> {
-    None
-}
-
 #[cfg(not(target_os = "windows"))]
 fn has_cloud_sync_attrs(_path: &Path) -> bool {
     false
@@ -339,7 +315,7 @@ pub fn check_free_space(ctx: &CheckCtx) -> Check {
                 .and_then(|p| p.parent().map(Path::to_path_buf))
         })
         .unwrap_or_else(|| PathBuf::from("."));
-    let Some(free) = free_disk_bytes(&target) else {
+    let Some(free) = ltk_manager_base::platform::free_disk_bytes(&target) else {
         return FREE_SPACE.result(Severity::Info, "Could not query free space");
     };
     let display = bytes_to_str(free);

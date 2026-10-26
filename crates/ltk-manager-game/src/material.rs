@@ -22,7 +22,6 @@ use ltk_meta::walk::Leaf;
 use regex::Regex;
 use serde::Serialize;
 
-use ltk_manager_assets::preview::AssetRef;
 use ltk_manager_bin::bin_document::{
     AssetLookup, BinDocument, BinDocumentError, Fields, Locator, NamedAsset, RowNames, boolean,
     fields_of, hex, items, leaf, link, object_at, string_map, struct_of, text, unsigned, vector4,
@@ -237,11 +236,9 @@ pub struct MaterialPreview {
     pub hash: String,
     /// The material's path, where a table names it.
     pub name: Option<String>,
-    /// The document declares no object under the link, so every slot is empty and the
-    /// submesh draws as an error rather than as a guess.
+    /// No bin the read reached declares an object under the link, so every slot is empty and
+    /// the submesh draws as an error rather than as a guess.
     pub missing: bool,
-    /// The linked file declaring the material, and none where the document read does.
-    pub source: Option<AssetRef>,
     /// `dynamicMaterial` is set, so the slots are the static values of an animated
     /// material.
     pub animated: bool,
@@ -495,7 +492,6 @@ pub(crate) fn linked_material(
             hash: hex(hash),
             name: locator.names.entry_name(hash),
             missing: true,
-            source: None,
             animated: false,
             shader: None,
             base: None,
@@ -671,7 +667,6 @@ impl<'a> Reader<'a> {
             hash: hex(self.hash),
             name: self.locator.names.entry_name(self.hash),
             missing: false,
-            source: None,
             animated: struct_of(self.material.get(&DYNAMIC_MATERIAL)).is_some(),
             shader: shader.path,
             base,

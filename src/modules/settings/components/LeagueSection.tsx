@@ -1,5 +1,4 @@
 import { CrosshairIcon } from "@phosphor-icons/react";
-import { type ReactNode } from "react";
 
 import {
   Button,
@@ -13,7 +12,6 @@ import type { LaunchMode } from "@/lib/tauri";
 import { useAutoDetectLeaguePath, useValidateLeaguePath } from "@/modules/settings/api";
 
 import { useLoadedSettings, useUpdateSettings } from "../api";
-import { ExperimentalChip } from "./ExperimentalChip";
 import { SettingGroup } from "./SettingGroup";
 import { SettingRow } from "./SettingRow";
 import { SettingSwitch } from "./SettingSwitch";
@@ -22,7 +20,6 @@ const LAUNCH_MODES: {
   value: LaunchMode;
   title: string;
   description: string;
-  badge?: ReactNode;
 }[] = [
   {
     value: "classic",
@@ -34,7 +31,6 @@ const LAUNCH_MODES: {
     title: "Modern",
     description:
       "Play starts the patcher and then League. One button for the whole thing, driven through the Riot Client.",
-    badge: <ExperimentalChip />,
   },
 ];
 
@@ -130,7 +126,6 @@ export function LeagueSection() {
                     value={mode.value}
                     title={mode.title}
                     description={mode.description}
-                    badge={mode.badge}
                   />
                 ))}
               </RadioGroup.Options>

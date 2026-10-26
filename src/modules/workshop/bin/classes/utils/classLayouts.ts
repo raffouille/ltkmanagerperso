@@ -22,6 +22,7 @@ export type SectionWidget =
   | "mesh"
   | "override-rows"
   | "effect-table"
+  | "condition-rows"
   | "emitters"
   | "clips"
   | "material-params"
@@ -180,6 +181,11 @@ export const skinLayout: ClassLayout = {
       title: m.workshop_bin_section_vfx_label,
       fields: ["idleParticlesEffects", "mResourceResolver"],
       as: "effect-table",
+    },
+    {
+      title: m.workshop_bin_section_conditions_label,
+      fields: ["PersistentEffectConditions", "mResourceResolver"],
+      as: "condition-rows",
     },
     {
       title: m.workshop_bin_section_audio_label,
@@ -516,6 +522,7 @@ export function sectionCount(
     case "material-macros":
       return section.rows.reduce((sum, row) => sum + childCount(row), 0);
     case "effect-table":
+    case "condition-rows":
       return lists(section.rows.filter((row) => fieldHash(row.path) !== EFFECT.resolver));
     case "override-rows":
       return lists(
@@ -551,6 +558,9 @@ const DESCENT: Record<SectionWidget, Descent> = {
   /* The elements alone. The tree fetches what sits under each of them itself. */
   rows: ["all"],
   "effect-table": ["all", "all"],
+  /* The third level is each driver's fields, which the condition's row is summarized by. The
+     effects and the submeshes are read when the row is unfolded. */
+  "condition-rows": ["all", "all", ["OwnerCondition", "SourceCondition"]],
   /* The third level is each override's fields, which name the submesh its row is titled by. */
   "override-rows": [["materialOverride"], "all", "all"],
   emitters: ["all", ["CustomMaterial"], "all"],
@@ -664,4 +674,16 @@ export const EFFECT = {
   targetBone: nameHash("targetBoneName"),
   resolver: nameHash("mResourceResolver"),
   resourceMap: nameHash("resourceMap"),
+} as const;
+
+/** The fields of one persistent condition, and the driver fields its row is summarized by. */
+export const CONDITION = {
+  list: nameHash("PersistentEffectConditions"),
+  effects: nameHash("PersistentVfxs"),
+  owner: nameHash("OwnerCondition"),
+  source: nameHash("SourceCondition"),
+  shown: nameHash("SubmeshesToShow"),
+  hidden: nameHash("SubmeshesToHide"),
+  spell: nameHash("Spell"),
+  drivers: nameHash("mDrivers"),
 } as const;

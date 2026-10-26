@@ -1,0 +1,2 @@
+{"class": "StaticMaterialDef", "field": "name", "from": {"type": "String"}, "to": {"type": "Hash", "width": 8}, "conversion": "hash_xxh3"}
+{"class": "StaticMaterialDef", "field": "name", "from": {"type": "Hash", "width": 4}, "to": {"type": "Hash", "width": 8}, "conversion": "rehash_xxh3"}

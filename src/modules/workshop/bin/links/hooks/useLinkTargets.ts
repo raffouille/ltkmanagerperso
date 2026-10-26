@@ -32,6 +32,8 @@ import { chunkPath, decideFileLink, decideObjectLink } from "../utils/linkDecisi
 export interface RowGroup {
   readonly key: string;
   readonly rows: readonly BinRow[];
+  /** Object hashes a typed read draws as chips, checked beside the rows' own links. */
+  readonly links?: readonly string[];
 }
 
 /** What a page's checks answered for the links and hashes in it. */
@@ -303,7 +305,7 @@ export function useCheckLinkTargets(
     () =>
       groups.map((group) => ({
         key: group.key,
-        hashes: linkHashes(group.rows),
+        hashes: [...new Set([...linkHashes(group.rows), ...(group.links ?? [])])].sort(),
         paths: linkPaths(group.rows),
         keys: linkStringKeys(group.rows),
       })),

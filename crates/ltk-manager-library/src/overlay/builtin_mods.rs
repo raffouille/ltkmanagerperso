@@ -30,7 +30,7 @@ use std::path::Path;
 use ward_skins::DefaultWardSkins;
 
 /// The directory under the storage directory holding every built-in mod's project.
-const DIR: &str = "builtin";
+pub(crate) const DIR: &str = "builtin";
 
 /// A mod the manager generates from the installed game and the mods below it.
 trait BuiltinMod {

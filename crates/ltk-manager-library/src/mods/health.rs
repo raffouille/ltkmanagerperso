@@ -27,10 +27,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Where the library remembers its verdicts, beside `library.json`.
-const MOD_HEALTH_VERDICTS_FILENAME: &str = "mod-health-verdicts.json";
+pub(crate) const MOD_HEALTH_VERDICTS_FILENAME: &str = "mod-health-verdicts.json";
 
 /// What that file was called before this module was named for mod health.
-pub(in crate::mods) const LEGACY_VERDICTS_FILENAME: &str = "check-verdicts.json";
+pub(crate) const LEGACY_VERDICTS_FILENAME: &str = "check-verdicts.json";
 
 /// What one check concluded, summarized for a mod user.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

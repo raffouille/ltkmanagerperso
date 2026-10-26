@@ -10,7 +10,7 @@ pub(crate) mod installed;
 mod write_target;
 
 pub(crate) use arguments::{Library, Workshop};
-pub(crate) use assets::{asset_reader, linked_assets, linked_reader, read_asset, read_bin};
-pub(crate) use blocking::{github_feed, integration, off_thread};
+pub(crate) use assets::{asset_reader, linked_reader, read_asset, read_bin};
+pub(crate) use blocking::{data_move, github_feed, integration, off_thread};
 pub(crate) use in_flight::{overtaken, InFlight};
 pub(crate) use write_target::{archive_of, project_of, WriteTarget};

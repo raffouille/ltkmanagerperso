@@ -2,7 +2,7 @@ import type {
   AssetRef,
   GraphClip,
   HashRef,
-  IdleEffect,
+  JointEffect,
   KeyRef,
   MaterialPreview,
   MaterialProgram,
@@ -18,7 +18,6 @@ import {
   type SubmeshProgram,
 } from "@/modules/viewport";
 
-import { assetKey } from "../../../preview/utils/assetRef";
 import { nameHash } from "../../shared/utils/binHash";
 import type { SystemModel } from "../../vfx/engine/model/model";
 import { EFFECTS_QUALITY, type EffectsQuality } from "../../vfx/engine/model/quality";
@@ -168,32 +167,14 @@ export function bindingOf<T>(
   };
 }
 
-/** The materials one program read is asked for, and the file declaring them. */
-export interface MaterialRead {
-  /** The linked file declaring the materials, and null for the skin's own bin. */
-  readonly source: AssetRef | null;
-  readonly hashes: readonly string[];
-}
-
-/**
- * Every material the skin draws with, each once, grouped by the file declaring it, as the
- * program reads are asked for them. The skin's own bin comes first where it declares any.
- */
-export function materialReads(skin: SkinModel): MaterialRead[] {
+/** Returns every material the skin draws with, each once, in the order the skin names them. */
+export function materialHashes(skin: SkinModel): string[] {
   const materials = [skin.material, ...skin.overrides.map((override) => override.material)];
-  const reads = new Map<string, { source: AssetRef | null; hashes: Set<string> }>();
+  const hashes = new Set<string>();
   for (const material of materials) {
-    if (material === null || material.missing) continue;
-
-    const key = material.source === null ? "" : assetKey(material.source);
-    const read = reads.get(key) ?? { source: material.source, hashes: new Set<string>() };
-    read.hashes.add(material.hash);
-    reads.set(key, read);
+    if (material !== null && !material.missing) hashes.add(material.hash);
   }
-
-  return [...reads.values()]
-    .sort((a, b) => Number(a.source !== null) - Number(b.source !== null))
-    .map(({ source, hashes }) => ({ source, hashes: [...hashes] }));
+  return [...hashes];
 }
 
 /**
@@ -225,7 +206,7 @@ export function submeshMaterial(skin: SkinModel, submesh: string): MaterialPrevi
  * It runs once, because the engine creates an idle effect once and the system's own
  * emitters loop. A target the skeleton lacks aims nowhere.
  */
-export function idleRig(pose: Pose, effect: IdleEffect, scale: number): RigModel {
+export function jointRig(pose: Pose, effect: JointEffect, scale: number): RigModel {
   const [x, y, z] = effect.position;
   const aim = effect.targetBone === "" ? -1 : pose.jointNamed(effect.targetBone);
   return {

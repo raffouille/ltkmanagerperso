@@ -1,15 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import type { BinRow } from "@/lib/tauri";
-
 import { nameHash } from "../../../shared/utils/binHash";
 import {
   declaredAdd,
   groupedAdd,
   IDLE_EFFECTS,
-  type IdleEffectAdd,
+  IDLE_LIST,
+  type NewEffect,
   resolverKey,
-} from "../idleEffectEdits";
+} from "../effectEdits";
 
 const SKIN = "0x2a1f3c7d";
 const RESOLVER = "0x11223344";
@@ -18,28 +17,16 @@ const OTHER = "0x55667788";
 const MAP = nameHash("resourceMap").slice(2);
 const LIST = IDLE_EFFECTS.slice(2);
 
-function entry(key: string, target: string): [string, BinRow] {
-  return [
-    key,
-    {
-      entry: RESOLVER,
-      path: `${MAP}{${key.slice(2)}}`,
-      label: key,
-      node: "entry",
-      name: key,
-      unnamed: true,
-      kind: null,
-      value: { type: "objectLink", hash: target, name: null },
-      declared: null,
-    },
-  ];
+function entry(key: string, target: string): [string, { hash: string }] {
+  return [key, { hash: target }];
 }
 
 const SPARK = { entry: SYSTEM, name: "Characters/Ahri/Skins/Skin0/Particles/Ahri_Spark" };
 
-function add(over: Partial<IdleEffectAdd>): IdleEffectAdd {
+function add(over: Partial<NewEffect>): NewEffect {
   return {
     skin: SKIN,
+    path: IDLE_LIST,
     count: 2,
     resolver: RESOLVER,
     key: { text: "Ahri_Spark", hash: nameHash("Ahri_Spark"), fresh: true },
@@ -139,5 +126,21 @@ describe("declaredAdd", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({ kind: "editProperty", holder: "", field: IDLE_EFFECTS });
+  });
+
+  it("addresses a list under a holder by the holder's path", () => {
+    const field = nameHash("PersistentVfxs");
+    const list = { holder: "87b1d303[1]", field, class: "PersistentVfxData" };
+    const calls = declaredAdd(
+      add({ path: list, key: { text: "K", hash: nameHash("K"), fresh: false } }),
+    );
+    const vfxs = `87b1d303[1].${field.slice(2)}`;
+
+    expect(calls[0]).toMatchObject({
+      kind: "insertItem",
+      path: vfxs,
+      item: { index: 2, key: null, class: "PersistentVfxData" },
+    });
+    expect(calls[1]).toMatchObject({ holder: `${vfxs}[2]`, field: nameHash("effectKey") });
   });
 });

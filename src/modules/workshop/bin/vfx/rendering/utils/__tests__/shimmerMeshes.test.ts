@@ -124,13 +124,12 @@ describe("shimmerMeshesOf", () => {
       name: "Material",
       value: { type: "link", hash: "0x1234abcd", name: null },
     });
-    const file = { kind: "file", path: "data/shared/materials.bin" } as const;
-    const preview = { hash: "0x1234abcd", missing: false, source: file } as MaterialPreview;
+    const preview = { hash: "0x1234abcd", missing: false } as MaterialPreview;
 
     const [linked] = shimmerMeshesOf(system(emitter), [preview]);
     const [unread] = shimmerMeshesOf(system(emitter));
 
-    expect(linked?.linked).toEqual({ hash: "0x1234abcd", file });
+    expect(linked?.linked).toEqual({ hash: "0x1234abcd" });
     expect(unread?.linked).toBeNull();
   });
 

@@ -69,8 +69,8 @@ function mount(patch: Record<string, unknown> = {}) {
 
 it("builds the initial recipe from timing, range and both effect references", async () => {
   effects = [
-    { key: "flight", system: "0x1", source: null },
-    { key: "hit", system: "0x2", source: null },
+    { key: "flight", system: "0x1", name: null },
+    { key: "hit", system: "0x2", name: null },
   ];
   const ready = mount();
   await waitFor(() => expect(ready).toHaveBeenCalled());
@@ -85,7 +85,7 @@ it("builds the initial recipe from timing, range and both effect references", as
 });
 
 it("keeps timing conflicts editable and suppresses disabled impacts", async () => {
-  effects = [{ key: "hit", system: "0x2", source: null }];
+  effects = [{ key: "hit", system: "0x2", name: null }];
   const ready = mount({ castTime: 0, haveHitEffect: false });
   await waitFor(() => expect(ready).toHaveBeenCalled());
   expect(ready.mock.lastCall![0]).toMatchObject({ timingConflict: [0.25, 0], impactEffect: null });

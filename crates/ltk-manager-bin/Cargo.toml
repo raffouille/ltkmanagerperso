@@ -25,8 +25,8 @@ indexmap = { workspace = true }
 lru = { workspace = true }
 ltk-declarations = { workspace = true }
 ltk-meta-docs = { workspace = true }
-ltk_file = { workspace = true }
 ltk_game_data = { workspace = true }
+ltk_game_index = { workspace = true, features = ["search"] }
 ltk_hash = { workspace = true }
 ltk_meta = { workspace = true }
 ltk_mimir_cache = { workspace = true }
@@ -34,7 +34,6 @@ ltk_mod_project = { workspace = true }
 ltk_modpkg = { workspace = true }
 ltk_wad = { workspace = true }
 parking_lot = { workspace = true }
-rayon = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -1,4 +1,4 @@
-import type { AssetRef, EffectSystem, GraphClip, HashRef } from "@/lib/tauri";
+import type { EffectSystem, GraphClip, HashRef } from "@/lib/tauri";
 
 import { nameHash } from "../../shared/utils/binHash";
 
@@ -23,8 +23,6 @@ export interface ParticleCue {
   readonly key: string;
   /** The `VfxSystemDefinitionData` object, `0x` and eight hex digits. */
   readonly system: string;
-  /** The linked file declaring the system, and null where the skin's own document does. */
-  readonly source: AssetRef | null;
   /** Seconds into the pass the system starts. */
   readonly at: number;
   /** Seconds into the pass the system is stopped, from the end frame, and null to play out. */
@@ -148,7 +146,6 @@ export function particleCues(
         cues.push({
           key: `${index}:${event.hash}:${pair}`,
           system: mapped.system,
-          source: mapped.source,
           at,
           until: until !== null && until > at ? until : null,
           bone: spawn.bone,

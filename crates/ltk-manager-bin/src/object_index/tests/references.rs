@@ -28,15 +28,17 @@ fn install() -> (TempDir, ObjectIndex) {
     )];
     let wads: &[(&str, &[Chunk<'_>])] = &[("Aatrox.wad.client", aatrox), ("Ahri.wad.client", ahri)];
 
-    let (tmp, index) = build(wads, 1);
     let paths = [
         "characters/aatrox/skins/skin10",
         "characters/aatrox/skins/skin2",
         "characters/aatrox/skins/skin2/resources",
         "characters/ahri/skins/skin0",
     ];
-    let index = index.named(&TestNames::over(&paths, &[SKIN, "ResourceResolver"]));
-    (tmp, index)
+    build_named(
+        wads,
+        1,
+        TestNames::over(&paths, &[SKIN, "ResourceResolver"]),
+    )
 }
 
 /// Each group as `(declaring file, the object paths under it)`.
@@ -151,8 +153,11 @@ fn an_object_no_table_names_sorts_after_the_named_of_its_file() {
         "data/objects.bin",
         prop(&[("characters/zed", SKIN), ("characters/secret", SKIN)]),
     )];
-    let (_tmp, index) = build(&[("Objects.wad.client", chunks)], 1);
-    let index = index.named(&TestNames::over(&["characters/zed"], &[SKIN]));
+    let (_tmp, index) = build_named(
+        &[("Objects.wad.client", chunks)],
+        1,
+        TestNames::over(&["characters/zed"], &[SKIN]),
+    );
     let secret = hex(BinHash::hash_str("characters/secret"));
 
     let result = index.class_references(BinHash::hash_str(SKIN), || false);

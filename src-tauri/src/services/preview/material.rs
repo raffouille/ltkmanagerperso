@@ -1,11 +1,12 @@
 //! The shader pipeline's read: materials with the game's own shaders translated for the
 //! viewport.
 
+use crate::data_location::{data_dir, SHADERS};
 use crate::error::{AppResult, IpcResult};
 use crate::services::shared::document_assets::{read_resolved, with_resolution};
 use crate::services::shared::off_thread;
-use crate::services::shared::{asset_reader, read_asset, read_bin};
-use crate::state::get_app_data_dir;
+use crate::services::shared::{asset_reader, linked_reader, read_asset, read_bin};
+use crate::state::SettingsState;
 use std::sync::Arc;
 
 use hexshade::TranslationCache;
@@ -13,17 +14,21 @@ use ltk_hash::{BinHash, Hash as _};
 use ltk_manager_assets::preview::AssetRef;
 use ltk_manager_bin::bin_document::{AssetLookup, BinDocument, BinDocumentId, RowNames};
 use ltk_manager_bin::object_index::parse_hash;
+use ltk_manager_game::lookup::{Declared, ObjectLookup};
 use ltk_manager_game::map::MapPath;
 use ltk_manager_game::material::defs::ShaderDefsCache;
 use ltk_manager_game::material::SHADER_DEFS_PATH;
 use ltk_manager_game::program::{
-    read_embedded_program, read_programs, MaterialProgram, ParticleDefine, ParticleShader,
-    PassProgram, ProgramOptions, Resolution, ShaderProgram,
+    MaterialProgram, ParticleDefine, ParticleShader, PassProgram, ProgramOptions, ProgramTarget,
+    ShaderProgram,
 };
 use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 
-/// Where the materials a program read names are declared.
+/// The bin a program read resolves its materials against.
+///
+/// A material that the bin does not declare is read from the first bin of its lookup that
+/// does, so a caller names a material by its hash alone.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(
     tag = "kind",
@@ -34,12 +39,6 @@ use tauri::{AppHandle, Manager};
 pub enum MaterialSource {
     /// An open document, such as a skin's bin.
     Document { document: BinDocumentId },
-    /// A bin read for the call, such as a file a skin links, resolved against the
-    /// project of `document` where one is open and against the install alone otherwise.
-    File {
-        asset: AssetRef,
-        document: Option<BinDocumentId>,
-    },
     /// A map's `.materials.bin`, located as `read_map` locates it: in the project of
     /// `document` first, where one is open, and in the install second.
     Map {
@@ -67,8 +66,9 @@ pub enum MaterialTarget {
 /// The materials `targets` name, each with a translated program per pass.
 ///
 /// An entry is an object hash as `0x` and eight hex digits, or an object path, which is
-/// hashed. The answer is one for one and in order, null where the bin declares no object
-/// under the entry or the path reaches no struct. The shader defs are read beside the bin,
+/// hashed. Each target is read from the first bin of the lookup over the source that declares
+/// its entry. The answer is one for one and in order, null where no bin of the lookup declares
+/// the entry or the path reaches no struct. The shader defs are read beside the bin,
 /// the project's copy first, and a read they refuse leaves every pass without a shader and
 /// says so. Translations are kept under the app's data directory by the blob's hash.
 ///
@@ -84,33 +84,21 @@ pub async fn read_material_programs(
     app_handle: AppHandle,
 ) -> IpcResult<Vec<Option<MaterialProgram>>> {
     off_thread(move || {
-        let objects: Vec<BinHash> = targets
-            .iter()
-            .filter_map(|target| match target {
-                MaterialTarget::Object { entry } => Some(entry_hash(entry)),
-                MaterialTarget::Embedded { .. } => None,
-            })
-            .collect();
         let absent = vec![None; targets.len()];
         let translations = translations(&app_handle);
 
-        on_source(&app_handle, source, absent, |resolution, read| {
-            let mut programs =
-                read_programs(resolution, &objects, options, &translations, read).into_iter();
-            targets
+        on_source(&app_handle, source, absent, |lookup, read| {
+            let targets: Vec<ProgramTarget> = targets
                 .iter()
                 .map(|target| match target {
-                    MaterialTarget::Object { .. } => programs.next().flatten(),
-                    MaterialTarget::Embedded { entry, path } => read_embedded_program(
-                        resolution,
-                        entry_hash(entry),
-                        path,
-                        options,
-                        &translations,
-                        read,
-                    ),
+                    MaterialTarget::Object { entry } => ProgramTarget::Object(entry_hash(entry)),
+                    MaterialTarget::Embedded { entry, path } => ProgramTarget::Embedded {
+                        entry: entry_hash(entry),
+                        path: path.clone(),
+                    },
                 })
-                .collect()
+                .collect();
+            lookup.programs(&targets, options, &translations, read)
         })
     })
     .await
@@ -163,9 +151,9 @@ pub async fn read_shader_program(
                 .map(|bin| (bin, entry_hash(&material.entry)))
         });
 
-        on_source(&app_handle, source, None, |resolution, read| {
+        on_source(&app_handle, source, None, |lookup, read| {
             ltk_manager_game::program::read_shader_program(
-                resolution,
+                lookup.resolution(Declared::Open),
                 entry_hash(&entry),
                 material_bin.as_ref().map(|(bin, at)| (bin, *at)),
                 &defines,
@@ -183,34 +171,30 @@ fn entry_hash(entry: &str) -> BinHash {
     parse_hash(entry).unwrap_or_else(|| BinHash::hash_str(entry))
 }
 
-/// `read` over the bin `source` names, resolved with its shader defs, and `absent` for a
-/// map with no materials bin.
+/// `read` over the bins of the lookup over the bin `source` names, resolved with its shader defs,
+/// and `absent` for a map with no materials bin.
 fn on_source<T>(
     app_handle: &AppHandle,
     source: MaterialSource,
     absent: T,
-    read: impl FnOnce(Resolution<'_>, &mut dyn FnMut(&AssetRef) -> AppResult<Vec<u8>>) -> T,
+    read: impl FnOnce(&mut ObjectLookup<'_>, &mut dyn FnMut(&AssetRef) -> AppResult<Vec<u8>>) -> T,
 ) -> AppResult<T> {
     let resolved = |bin: &BinDocument, names: &dyn RowNames, assets: &dyn AssetLookup| {
         let mut bytes = asset_reader(app_handle);
         let shaders = shader_defs(app_handle, assets);
-        let resolution = Resolution {
-            document: bin,
+        let mut lookup = ObjectLookup::new(
+            bin,
             names,
             assets,
-            shaders: shaders.as_deref(),
-        };
-        Ok(read(resolution, &mut bytes))
+            shaders.as_deref(),
+            linked_reader(app_handle),
+        );
+        Ok(read(&mut lookup, &mut bytes))
     };
     let parsed = |asset: &AssetRef| -> AppResult<BinDocument> { read_bin(app_handle, asset) };
 
     match source {
         MaterialSource::Document { document } => read_resolved(app_handle, document, resolved),
-        MaterialSource::File { asset, document } => {
-            with_resolution(app_handle, document, |names, assets| {
-                resolved(&parsed(&asset)?, names, assets)
-            })
-        }
         MaterialSource::Map { map, document } => {
             with_resolution(app_handle, document, |names, assets| {
                 let Some(asset) = assets.locate(&map.materials()) else {
@@ -291,11 +275,12 @@ pub async fn read_engine_program(
     .await
 }
 
-/// The translations kept under the app's data directory, or none kept where it has none.
+/// The translations kept under the data directory, or none kept where it has none.
 pub(crate) fn translations(app_handle: &AppHandle) -> TranslationCache {
+    let config = app_handle.state::<SettingsState>().config();
     TranslationCache::new(
-        get_app_data_dir(app_handle)
-            .map(|dir| dir.join("shaders"))
+        data_dir(app_handle, &config)
+            .map(|dir| dir.join(SHADERS))
             .as_deref(),
     )
 }

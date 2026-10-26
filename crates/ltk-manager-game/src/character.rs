@@ -28,7 +28,7 @@ const ROOT_SPELL: BinHash = named("mRootSpell");
 /// more than one casing.
 #[must_use]
 pub fn characters(index: &ObjectIndex) -> Vec<String> {
-    characters_named(index.named_objects().map(|(_, path)| path))
+    characters_named(index.named_under("Characters").map(|(_, path)| path))
 }
 
 /// The path of the `CharacterRecord` of `character`.
@@ -79,12 +79,12 @@ pub fn ability_spells(
 }
 
 /// The characters among the record paths in `paths`, in natural order.
-fn characters_named<'a>(paths: impl Iterator<Item = &'a str>) -> Vec<String> {
+fn characters_named(paths: impl Iterator<Item = impl AsRef<str>>) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut characters = Vec::new();
 
     for path in paths {
-        let mut segments = path.split('/');
+        let mut segments = path.as_ref().split('/');
         let (Some(root), Some(owner), Some(records), Some(record), None) = (
             segments.next(),
             segments.next(),

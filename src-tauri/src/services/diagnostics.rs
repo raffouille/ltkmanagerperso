@@ -10,7 +10,7 @@
 use super::desktop::shell::reveal_in_explorer_inner;
 use crate::error::{AppError, AppResult, IpcResult};
 use crate::patcher::host::HOOK_DLL_NAME;
-use crate::state::{get_app_data_dir, IncidentStoreState, SettingsState};
+use crate::state::{IncidentStoreState, SettingsState};
 use std::sync::Arc;
 
 use crate::telemetry::errors::UiError;
@@ -145,14 +145,8 @@ fn run_diagnostics_inner(
     settings: &State<SettingsState>,
 ) -> DiagnosticReport {
     let snapshot = settings.config();
-    // Mirror `ModLibrary::storage_dir` — fall back to the Tauri app-data dir
-    // when the user hasn't set a custom storage path. The diagnostics should
-    // inspect whatever path the rest of the app actually uses.
     let storage_is_default = snapshot.mod_storage_path.is_none();
-    let mod_storage_path = snapshot
-        .mod_storage_path
-        .clone()
-        .or_else(|| get_app_data_dir(app_handle));
+    let mod_storage_path = crate::data_location::data_dir(app_handle, &snapshot);
     let ctx = CheckCtx {
         league_path: snapshot.league_path.clone(),
         mod_storage_path,

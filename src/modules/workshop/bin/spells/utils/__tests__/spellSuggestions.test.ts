@@ -55,8 +55,8 @@ it("prefers rank-one display range and falls back through the two cast ranges", 
 });
 
 it("resolves exact skin names without accepting ambiguous keys or leaf names", () => {
-  const effect: EffectSystem = { key: nameHash("Flight"), system: "0x1", source: null };
-  const other: EffectSystem = { key: "0x2", system: "0x2", source: null };
+  const effect: EffectSystem = { key: nameHash("Flight"), system: "0x1", name: null };
+  const other: EffectSystem = { key: "0x2", system: "0x2", name: null };
   const names = { "0x1": { path: "Skin/Particles/Q" }, "0x2": { path: "Other/Particles/Q" } };
   expect(spellEffect([effect], null, "Flight")).toBe(effect);
   expect(spellEffect([effect], null, "q", names)).toBe(effect);
@@ -88,7 +88,7 @@ it("centers area rings on the target and aims the cone toward it", () => {
 });
 
 it("suppresses explicitly disabled or malformed hit effects", () => {
-  const effect = { key: "hit", system: "0x1", source: null };
+  const effect = { key: "hit", system: "0x1", name: null };
   expect(spellImpact(spell({ hitEffectKey: "hit" }), [effect])).toBe(effect);
   expect(spellImpact(spell({ haveHitEffect: true, hitEffectKey: "hit" }), [effect])).toBe(effect);
   expect(spellImpact(spell({ haveHitEffect: false, hitEffectKey: "hit" }), [effect])).toBeNull();

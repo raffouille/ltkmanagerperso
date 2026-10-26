@@ -86,7 +86,7 @@ function Harness() {
 
 function mount() {
   const client = new QueryClient();
-  const graph: AnimationGraph = { source: null, clips, tracks: [], masks: [], syncGroups: [] };
+  const graph: AnimationGraph = { clips, tracks: [], masks: [], syncGroups: [] };
   client.setQueryData(skinQueries.graph(1, "graph").queryKey, graph);
   render(
     <QueryClientProvider client={client}>

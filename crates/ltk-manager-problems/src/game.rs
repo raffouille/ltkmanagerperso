@@ -7,21 +7,22 @@
 //! patches, so they still name a path Riot removed. Trusting them here deletes
 //! a file whose backing is gone.
 
-#[cfg(test)]
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::OnceLock;
 
+use ltk_game_index::{BuildOptions, ObjectIndex};
 use ltk_hash::BinHash;
 use ltk_hashdb::LayeredHashDb;
 use ltk_wad::WadHash;
+use parking_lot::Mutex;
+use sha2::{Digest, Sha256};
 
-use ltk_manager_assets::game_index::GameIndex;
-use ltk_manager_assets::game_wads::{GameArchives, WadCache, mount_wad};
+use ltk_manager_assets::game_wads::{ChunkIndex, ChunkPaths, GameArchives, WadCache};
 use ltk_manager_assets::hashtables::HashtableCache;
 use ltk_manager_base::budget::files_at_once;
 use ltk_manager_base::config::Config;
-use ltk_manager_bin::object_index::ObjectIndex;
 
 /// The chunks of the installed game.
 ///
@@ -47,6 +48,18 @@ pub trait GameContent: std::fmt::Debug + Send + Sync {
     /// as one sentence a panel can draw.
     fn read(&self, path: WadHash) -> Result<Option<Vec<u8>>, String>;
 
+    /// Returns the SHA-256 of the chunk's decompressed bytes, or `None` where no archive
+    /// contains it.
+    ///
+    /// The default reads and hashes the chunk on every call.
+    ///
+    /// # Errors
+    ///
+    /// Fails where [`read`](Self::read) fails.
+    fn digest(&self, path: WadHash) -> Result<Option<[u8; 32]>, String> {
+        Ok(self.read(path)?.map(|bytes| Sha256::digest(&bytes).into()))
+    }
+
     /// Returns the installed chunks that declare the bin object `object`.
     ///
     /// Returns `None` if the bin objects of the install cannot be indexed. The
@@ -69,47 +82,14 @@ pub trait GameContent: std::fmt::Debug + Send + Sync {
 #[derive(Debug)]
 pub struct InstalledContent {
     archives: GameArchives,
-    chunks: OnceLock<ChunkIndex>,
+    /// The chunk index of the install, or `None` if the archives cannot be indexed.
+    chunks: OnceLock<Option<ChunkIndex>>,
     /// The bin objects of the install, or `None` if the build failed.
     objects: OnceLock<Option<ObjectIndex>>,
     mounts: WadCache,
-}
-
-/// The archive and decompressed size of each installed chunk.
-///
-/// Names sit apart from the map: a few hundred archives against a few hundred
-/// thousand chunks, so a string per chunk would store each name over and
-/// over.
-#[derive(Debug, Default)]
-struct ChunkIndex {
-    /// Every archive the walk read, in walk order.
-    names: Vec<String>,
-    /// Each chunk's entry, sorted by hash.
-    ///
-    /// A path in more than one archive keeps the last archive walked. Two
-    /// copies that differ are a separate defect.
-    entries: Vec<ChunkEntry>,
-}
-
-/// One chunk from an installed archive's table of contents.
-#[derive(Debug, Clone, Copy)]
-struct ChunkEntry {
-    hash: WadHash,
-    /// The decompressed size, which a table of contents records in 32 bits.
-    size: u32,
-    /// The archive that contains the chunk, as an index into `ChunkIndex::names`.
-    archive: u32,
-}
-
-impl ChunkIndex {
-    /// Returns the entry of the chunk `path`, or `None` if no archive contains it.
-    fn get(&self, path: WadHash) -> Option<&ChunkEntry> {
-        let at = self
-            .entries
-            .binary_search_by_key(&path.0, |entry| entry.hash.0)
-            .ok()?;
-        Some(&self.entries[at])
-    }
+    /// The SHA-256 of each chunk read through [`GameContent::digest`], keyed by the chunk
+    /// and its table-of-contents checksum.
+    digests: Mutex<HashMap<(WadHash, u64), [u8; 32]>>,
 }
 
 impl InstalledContent {
@@ -127,6 +107,7 @@ impl InstalledContent {
             chunks: OnceLock::new(),
             objects: OnceLock::new(),
             mounts: WadCache::default(),
+            digests: Mutex::default(),
         }
     }
 
@@ -136,75 +117,33 @@ impl InstalledContent {
         Self::over(GameArchives::at(game_dir))
     }
 
-    /// Every chunk's archive, walked once.
+    /// Returns the chunk index of the install, and builds it on the first call.
     ///
     /// Tables of contents only, so hundreds of gigabytes cost the few megabytes
-    /// their chunk tables come to. An archive that will not mount is logged and
-    /// skipped: skipping one costs a removal refused, which is the safe
-    /// direction.
-    fn index(&self) -> &ChunkIndex {
-        self.chunks.get_or_init(|| {
-            let started = std::time::Instant::now();
-            let mut index = ChunkIndex::default();
+    /// their chunk tables come to. An archive that will not mount holds no
+    /// chunks: skipping one costs a removal refused, which is the safe
+    /// direction. Returns `None` if the archives cannot be indexed.
+    fn index(&self) -> Option<&ChunkIndex> {
+        self.chunks
+            .get_or_init(|| {
+                let started = std::time::Instant::now();
+                let index = self
+                    .archives
+                    .chunk_index(None)
+                    .inspect_err(|e| {
+                        tracing::warn!("Could not index the installed game's archives: {e}");
+                    })
+                    .ok()?;
 
-            let archives = match self.archives.list() {
-                Ok(archives) => archives,
-                Err(e) => {
-                    tracing::warn!("Could not list the installed game's archives: {e}");
-                    return index;
-                }
-            };
-
-            for archive in &archives {
-                match self.chunks_in(&archive.name) {
-                    Ok(chunks) => {
-                        let at = index.names.len() as u32;
-                        index.names.push(archive.name.clone());
-                        index
-                            .entries
-                            .extend(chunks.into_iter().map(|(hash, size)| ChunkEntry {
-                                hash,
-                                size: u32::try_from(size).unwrap_or(u32::MAX),
-                                archive: at,
-                            }));
-                    }
-                    Err(e) => {
-                        tracing::warn!("Skipping {}, which would not mount: {e}", archive.name)
-                    }
-                }
-            }
-
-            // The sort is stable, so the last archive walked is the later of two copies.
-            index.entries.sort_by_key(|entry| entry.hash.0);
-            index.entries.dedup_by(|later, kept| {
-                let same = later.hash == kept.hash;
-                if same {
-                    *kept = *later;
-                }
-                same
-            });
-            index.entries.shrink_to_fit();
-
-            tracing::debug!(
-                "Indexed {} chunks across {} game archives in {:?}",
-                index.entries.len(),
-                archives.len(),
-                started.elapsed()
-            );
-            index
-        })
-    }
-
-    /// Each chunk's hash and decompressed size in one archive's table of
-    /// contents.
-    fn chunks_in(&self, wad_name: &str) -> ltk_manager_base::error::AppResult<Vec<(WadHash, u64)>> {
-        let wad = mount_wad(&self.archives.archive_path(wad_name)?)?;
-        Ok(wad
-            .chunks()
-            .as_slice()
-            .iter()
-            .map(|chunk| (chunk.path_hash, chunk.uncompressed_size as u64))
-            .collect())
+                tracing::debug!(
+                    "Indexed {} chunks across {} game archives in {:?}",
+                    index.len(),
+                    index.archives().len(),
+                    started.elapsed()
+                );
+                Some(index)
+            })
+            .as_ref()
     }
 
     /// Returns the bin object index of the install, and builds it on the first call.
@@ -228,7 +167,8 @@ impl InstalledContent {
                     return None;
                 }
 
-                index_objects(&self.archives, &cache.wad_tables())
+                let chunks = self.index()?;
+                index_objects(chunks, &cache.wad_tables())
                     .inspect_err(|e| {
                         tracing::warn!("Could not index the installed game's bin objects: {e}");
                     })
@@ -238,51 +178,86 @@ impl InstalledContent {
     }
 }
 
-/// Builds the index of the bin objects that the bins of `archives` declare.
+/// Builds the index of the bin objects that the bins of `chunks` declare.
 ///
-/// `tables` resolves chunk hashes to paths. The build reads the first bytes of
-/// every chunk whose hash `tables` does not resolve, so an empty `tables`
-/// causes a prefix read of every chunk of the install.
+/// `tables` resolves chunk hashes to paths. The build reads the first bytes of every chunk whose hash
+/// `tables` does not resolve, so an empty `tables` causes a prefix read of
+/// every chunk of the install.
 ///
-/// Fails if the archives cannot be listed or if the build fails.
-fn index_objects(archives: &GameArchives, tables: &LayeredHashDb) -> Result<ObjectIndex, String> {
-    let game = GameIndex::build(archives, tables).map_err(|e| e.to_string())?;
-    ObjectIndex::build(&game, archives, files_at_once(), &|| false).map_err(|e| e.to_string())
+/// Fails if the build fails.
+fn index_objects(chunks: &ChunkIndex, tables: &LayeredHashDb) -> Result<ObjectIndex, String> {
+    let paths = ChunkPaths(tables);
+    let mut options = BuildOptions::default();
+    options.resolver = Some(&paths);
+    options.workers = NonZeroUsize::new(files_at_once());
+    ObjectIndex::build_with(chunks, &options).map_err(|e| e.to_string())
 }
 
 impl GameContent for InstalledContent {
     fn contains(&self, path: WadHash) -> bool {
-        self.index().get(path).is_some()
+        self.index().is_some_and(|index| index.contains(path))
     }
 
     fn size(&self, path: WadHash) -> Option<u64> {
-        self.index().get(path).map(|chunk| u64::from(chunk.size))
+        self.index()?.row(path).map(|row| row.size())
     }
 
     fn declaring_chunks(&self, object: BinHash) -> Option<Vec<WadHash>> {
-        Some(self.objects()?.declaring_chunks(object).collect())
+        Some(
+            self.objects()?
+                .declarations(object)
+                .map(|(_, row)| row.chunk)
+                .collect(),
+        )
     }
 
     fn warm(&self) {
         self.index();
     }
 
-    /// Read through a cached mount.
+    /// Read through a cached mount, from the first archive that contains the chunk.
     ///
     /// One table of contents parse per archive, not per chunk.
     fn read(&self, path: WadHash) -> Result<Option<Vec<u8>>, String> {
-        let index = self.index();
-        let Some(name) = index
-            .get(path)
-            .and_then(|chunk| index.names.get(chunk.archive as usize))
+        let Some((index, row)) = self
+            .index()
+            .and_then(|index| Some((index, index.row(path)?)))
         else {
             return Ok(None);
         };
 
         self.mounts
-            .read_chunk(&self.archives, name, path)
+            .read_chunk(
+                &self.archives,
+                &index.archive(row.first_holder()).name,
+                path,
+            )
             .map(Some)
             .map_err(|e| e.to_string())
+    }
+
+    /// Hashes the chunk once for each table-of-contents checksum, so a patch that changes
+    /// the chunk also changes the key.
+    fn digest(&self, path: WadHash) -> Result<Option<[u8; 32]>, String> {
+        let Some(checksum) = self
+            .index()
+            .and_then(|index| index.row(path))
+            .and_then(|row| row.copies().first())
+            .map(|copy| copy.checksum)
+        else {
+            return Ok(None);
+        };
+
+        if let Some(digest) = self.digests.lock().get(&(path, checksum)) {
+            return Ok(Some(*digest));
+        }
+
+        let Some(bytes) = self.read(path)? else {
+            return Ok(None);
+        };
+        let digest: [u8; 32] = Sha256::digest(&bytes).into();
+        self.digests.lock().insert((path, checksum), digest);
+        Ok(Some(digest))
     }
 }
 

@@ -148,8 +148,11 @@ fn the_unnamed_objects_group_last_under_the_question_mark_and_read_as_hex() {
         ("characters/hidden", "Character"),
     ];
     let chunks: &[Chunk<'_>] = &[("data/objects.bin", prop(objects))];
-    let (_tmp, index) = build(&[("Objects.wad.client", chunks)], 1);
-    let index = index.named(&TestNames::over(&["characters/aatrox"], &["Character"]));
+    let (_tmp, index) = build_named(
+        &[("Objects.wad.client", chunks)],
+        1,
+        TestNames::over(&["characters/aatrox"], &["Character"]),
+    );
 
     let root = index.object_dir("").unwrap();
     assert_eq!(
@@ -192,14 +195,14 @@ fn an_index_no_table_names_lists_only_the_unnamed_group() {
 #[test]
 fn a_node_several_files_declare_carries_every_declaration_in_archive_order() {
     let shared: &[(&str, &str)] = &[("characters/shared", "Shared")];
-    let (_tmp, index) = build(
+    let (_tmp, index) = build_named(
         &[
             ("A.wad.client", &[("data/a.bin", prop(shared))]),
             ("B.wad.client", &[("data/b.bin", prop(shared))]),
         ],
         2,
+        TestNames::over(&["characters/shared"], &["Shared"]),
     );
-    let index = index.named(&TestNames::over(&["characters/shared"], &["Shared"]));
 
     let listing = index.object_dir("characters").unwrap();
     let files: Vec<&str> = listing.objects[0]
@@ -285,8 +288,11 @@ fn find_matches_an_unnamed_object_by_its_hex_after_the_named() {
         ("characters/secret", "Character"),
     ];
     let chunks: &[Chunk<'_>] = &[("data/objects.bin", prop(objects))];
-    let (_tmp, index) = build(&[("Objects.wad.client", chunks)], 1);
-    let index = index.named(&TestNames::over(&["characters/aatrox"], &["Character"]));
+    let (_tmp, index) = build_named(
+        &[("Objects.wad.client", chunks)],
+        1,
+        TestNames::over(&["characters/aatrox"], &["Character"]),
+    );
     let secret = hex(BinHash::hash_str("characters/secret"));
 
     let result = index.find(Some(&literal(&secret[2..6])), None, || false);

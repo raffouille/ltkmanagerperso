@@ -199,14 +199,16 @@ jobs:
             fs.writeFileSync(path, JSON.stringify(conf, null, 2) + '\n');
           " "${{ steps.version.outputs.version }}"
 
+      # A pre-release is attested for the staging delivery service, a release for production.
       - name: Attest build
         shell: bash
         env:
-          LTK_PATCHER_ATTESTATION_KEY: ${{ secrets.LTK_PATCHER_ATTESTATION_KEY }}
+          LTK_PATCHER_DELIVERY: ${{ steps.version.outputs.prerelease == 'true' && 'staging' || 'production' }}
+          LTK_PATCHER_ATTESTATION_KEY: ${{ steps.version.outputs.prerelease == 'true' && secrets.LTK_PATCHER_ATTESTATION_KEY_STAGING || secrets.LTK_PATCHER_ATTESTATION_KEY }}
         run: |
           if [[ -z "$LTK_PATCHER_ATTESTATION_KEY" ]]; then
             if [[ "${{ github.repository }}" == "LeagueToolkit/ltk-manager" ]]; then
-              echo "::error::LTK_PATCHER_ATTESTATION_KEY is not set"
+              echo "::error::The $LTK_PATCHER_DELIVERY attestation key secret is not set"
               exit 1
             fi
             echo "::notice::No attestation key. The build runs the bundled patcher DLL only."
@@ -215,6 +217,7 @@ jobs:
 
           ATTESTATION=$(node scripts/attest-build.mjs "${{ steps.version.outputs.version }}" "$GITHUB_SHA")
           echo "LTK_PATCHER_ATTESTATION=$ATTESTATION" >> "$GITHUB_ENV"
+          echo "LTK_PATCHER_DELIVERY=$LTK_PATCHER_DELIVERY" >> "$GITHUB_ENV"
 
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
@@ -228,9 +231,10 @@ jobs:
           # Read by `option_env!` at compile time. A build without it reports no
           # diagnostics, so a fork releases without collecting anything.
           LTK_POSTHOG_API_KEY: ${{ secrets.LTK_POSTHOG_API_KEY }}
-          # Read by `option_env!` at compile time. A build without it runs the
+          # Read by `option_env!` at compile time. A build without them runs the
           # bundled patcher DLL only.
           LTK_PATCHER_ATTESTATION: ${{ env.LTK_PATCHER_ATTESTATION }}
+          LTK_PATCHER_DELIVERY: ${{ env.LTK_PATCHER_DELIVERY }}
           # Read by `scripts/upload-source-maps.mjs`, between the frontend build
           # and the bundle. Absent, the maps are deleted rather than uploaded, so
           # a fork and the pull request workflow ship the same installer.

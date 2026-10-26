@@ -19,6 +19,7 @@ import { nameHash } from "../../shared/utils/binHash";
 import type { LeafEdit } from "../../tree/hooks/useLeafEdit";
 import { RowValue } from "../../values/components/RowValue";
 import { JointPicker } from "./JointPicker";
+import type { ResourceTarget } from "./ResolverScope";
 
 /**
  * The system an effect names, as a chip reading its last segment.
@@ -34,7 +35,7 @@ function Resource({
 }: {
   effect: BinRow | undefined;
   name: BinRow | undefined;
-  resources: ReadonlyMap<string, BinRow>;
+  resources: ReadonlyMap<string, ResourceTarget>;
 }) {
   const named = textOf(name);
   const hash =
@@ -44,12 +45,9 @@ function Resource({
         ? null
         : nameHash(named);
   const system = hash === null ? undefined : resources.get(hash);
-  if (system?.value.type === "objectLink") {
-    return (
-      <ObjectChip hash={system.value.hash} name={system.value.name} kind="link" reading="name" />
-    );
+  if (system !== undefined) {
+    return <ObjectChip hash={system.hash} name={system.name} kind="link" reading="name" />;
   }
-  if (system !== undefined) return <RowValue row={system} />;
   if (effect !== undefined) return <RowValue row={effect} />;
   if (named !== undefined) return <span className="truncate select-text">{named}</span>;
   return null;
@@ -57,7 +55,7 @@ function Resource({
 
 export interface EffectRowsContextValue {
   pages: LayoutPages;
-  resources: ReadonlyMap<string, BinRow>;
+  resources: ReadonlyMap<string, ResourceTarget>;
   /** The view's edits, and null where the effects take none. */
   edit: LeafEdit | null;
   /** The joint names of the skin's skeleton, and none while it loads. */

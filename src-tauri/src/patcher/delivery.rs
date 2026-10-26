@@ -8,19 +8,29 @@ use ltk_manager_runtime::patcher::delivery::{attested_manager, Channel, PatcherD
 use parking_lot::Mutex;
 use semver::{Prerelease, Version};
 
-// shortcut: the staging service and its key, switch both when the production service exists.
-/// Base URL of the public delivery service.
-const DELIVERY_URL: &str = "https://patcher-staging.leaguetoolkit.dev";
-/// Base64 minisign public key of the delivery manifests.
-const MANIFEST_PUBLIC_KEY: &str = "RWRHh5bl7JOIscd3lf1Sw2xqd5qcoSeau1GmXjBm7C4KA4YSB0DOf+Kx";
+/// Base URL and base64 minisign manifest key of the staging delivery service.
+const STAGING: (&str, &str) = (
+    "https://patcher-staging.leaguetoolkit.dev",
+    "RWRHh5bl7JOIscd3lf1Sw2xqd5qcoSeau1GmXjBm7C4KA4YSB0DOf+Kx",
+);
+/// Base URL and base64 minisign manifest key of the production delivery service.
+const PRODUCTION: (&str, &str) = (
+    "https://patcher.leaguetoolkit.dev",
+    "RWSk74swcHfkZfLblm3iSk9RLVHJ1xjtqn/zySIPaCBM1hecnlFy1Bxi",
+);
 
 /// Build attestation that the release workflow signed for this manager version.
 ///
 /// Read by `option_env!` at compile time. A build without it runs the bundled DLL only.
 const ATTESTATION: Option<&str> = option_env!("LTK_PATCHER_ATTESTATION");
 
+/// Delivery environment that the attestation is for, `staging` or `production`.
+///
+/// Read by `option_env!` at compile time, beside [`ATTESTATION`].
+const DELIVERY: Option<&str> = option_env!("LTK_PATCHER_DELIVERY");
+
 /// Host protocol of `resources/ltk_patcher_host.exe`. It must change together with the binary.
-const BUNDLED_HOST_PROTOCOL: u32 = 2;
+const BUNDLED_HOST_PROTOCOL: u32 = 3;
 
 /// Tauri-managed delivery client, and the lock that allows one sync at a time.
 pub struct PatcherDeliveryState {
@@ -29,36 +39,43 @@ pub struct PatcherDeliveryState {
 }
 
 impl PatcherDeliveryState {
-    /// Builds the client with its state under `app_data_dir`.
+    /// Builds the client with its state under `data_dir`.
     ///
     /// Removes the staged builds that no cached manifest offers, before any session can
     /// select one. Returns a state without a client if the target is not Windows, if the
-    /// build has no [`ATTESTATION`] or its attestation names another manager version, or
-    /// if `app_data_dir` is `None`.
-    pub fn new(app_data_dir: Option<&Path>) -> Self {
+    /// build has no [`ATTESTATION`] or its attestation names another manager version, if
+    /// [`DELIVERY`] names no environment with a manifest key, or if `data_dir` is `None`.
+    pub fn new(data_dir: Option<&Path>) -> Self {
         let manager = Version {
             pre: Prerelease::EMPTY,
             ..Version::parse(env!("CARGO_PKG_VERSION")).expect("CARGO_PKG_VERSION is semver")
         };
         let release = manager.to_string();
+        let service = match DELIVERY {
+            Some("staging") => Some(STAGING),
+            Some("production") => Some(PRODUCTION),
+            _ => None,
+        }
+        .filter(|(_, public_key)| !public_key.is_empty());
 
-        let delivery = match (cfg!(windows), ATTESTATION, app_data_dir) {
-            (true, Some(attestation), Some(dir))
+        let delivery = match (cfg!(windows), ATTESTATION, service, data_dir) {
+            (true, Some(attestation), Some((url, public_key)), Some(dir))
                 if attested_manager(attestation).as_deref() == Some(release.as_str()) =>
             {
                 Some(Arc::new(PatcherDelivery {
-                    root: dir.join("patcher"),
-                    url: DELIVERY_URL.to_string(),
-                    public_key: MANIFEST_PUBLIC_KEY.to_string(),
+                    root: dir.join(crate::data_location::PATCHER),
+                    url: url.to_string(),
+                    public_key: public_key.to_string(),
                     attestation: attestation.to_string(),
                     manager,
                     protocol: BUNDLED_HOST_PROTOCOL,
                 }))
             }
-            (true, Some(_), Some(_)) => {
+            (true, Some(_), _, Some(_)) => {
                 tracing::warn!(
                     %release,
-                    "The build attestation does not name this manager version. Running the bundled patcher DLL only"
+                    delivery = DELIVERY.unwrap_or("none"),
+                    "The build attestation does not name this manager version and a delivery service with a manifest key. Running the bundled patcher DLL only"
                 );
                 None
             }

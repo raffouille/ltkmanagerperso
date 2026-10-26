@@ -4,6 +4,7 @@
 //! Its state is managed in `setup`, beside the shader caches and the sandboxes it reads through.
 
 mod assets;
+mod locate;
 mod map;
 mod map_geometry;
 mod map_import;
@@ -14,6 +15,7 @@ mod spell;
 mod vfx;
 
 pub use assets::*;
+pub use locate::*;
 pub use map::*;
 pub use map_geometry::*;
 pub use map_import::*;

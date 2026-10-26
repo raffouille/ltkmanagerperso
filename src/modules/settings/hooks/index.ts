@@ -3,6 +3,7 @@ export { useBlocklistView } from "./useBlocklistView";
 export { useHddWarning } from "./useHddWarning";
 export type { RegexPreview } from "./useRegexPreview";
 export { useRegexPreview } from "./useRegexPreview";
+export { useSettingsBackup } from "./useSettingsBackup";
 export { useWadAutocomplete } from "./useWadAutocomplete";
 export type { UseWadBlocklistResult } from "./useWadBlocklist";
 export { useWadBlocklist } from "./useWadBlocklist";

@@ -10,17 +10,16 @@ use ltk_meta::{BinObject, PropertyValueEnum};
 
 mod children;
 
-pub use children::search_linked_children;
+use children::search_linked_children;
 
 use super::{VfxField, VfxMapEntry, VfxObject, VfxSystem, VfxValue};
-use ltk_manager_assets::preview::AssetRef;
 use ltk_manager_bin::bin_document::{
     AssetLookup, BinDocument, BinDocumentError, Locator, Namer, RowNames, chunk_asset, hash_hex,
     hex, link, object_at, owned,
 };
 use ltk_manager_bin::bin_walk as walk;
 
-use crate::linked::find_linked_materials;
+use crate::lookup::{ObjectLookup, find_linked_materials};
 use crate::material::{MaterialPreview, linked_material};
 use crate::resolver::{EFFECT_KEY, resolver_entries};
 
@@ -87,6 +86,32 @@ const RESOURCE_RESOLVER: BinHash = named("ResourceResolver");
 /// `VfxSystemDefinitionData`, the class a child identifier names.
 const SYSTEM_DEFINITION: BinHash = named("VfxSystemDefinitionData");
 
+impl ObjectLookup<'_> {
+    /// Resolves the system at `entry` from the first bin of the lookup that declares it, with
+    /// its children and custom materials read from the bins of the lookup.
+    ///
+    /// A child system or a material that no bin of the lookup declares is skipped: the child
+    /// stays a link and the material stays missing.
+    ///
+    /// # Errors
+    ///
+    /// As `resolve_system`, against the bin that declares `entry`. Fails with
+    /// [`BinDocumentError::NodeNotFound`] if no bin of the lookup declares it.
+    pub fn system(&mut self, entry: BinHash) -> Result<VfxSystem, BinDocumentError> {
+        let found = self.find(entry);
+        let document = found.map_or(self.open(), |found| self.document(found));
+        let mut system =
+            resolve_system(document, entry, self.names(), self.assets(), self.shaders())?;
+
+        if let Some(found) = found {
+            search_linked_children(&mut system, found, self);
+        }
+        let missing = system.materials.iter_mut().collect();
+        find_linked_materials(missing, self);
+        Ok(system)
+    }
+}
+
 /// One system's whole property subtree, with every reference resolved.
 ///
 /// A `Link` naming another object of the same document is inlined as that object's
@@ -101,7 +126,7 @@ const SYSTEM_DEFINITION: BinHash = named("VfxSystemDefinitionData");
 /// Fails with [`BinDocumentError::NodeNotFound`] where `entry` is no object of the
 /// document, and with [`BinDocumentError::ReadTooLarge`] or
 /// [`BinDocumentError::ReadTooDeep`] where the subtree is larger than one read answers.
-pub fn resolve_system(
+pub(crate) fn resolve_system(
     document: &BinDocument,
     entry: BinHash,
     names: &dyn RowNames,
@@ -157,24 +182,6 @@ pub fn child_targets(document: &BinDocument, names: &dyn RowNames) -> Vec<VfxObj
             name: namer.entry(entry),
         })
         .collect()
-}
-
-/// The custom materials of `system` its own bin does not declare, looked for in `linked`
-/// and in what each file links.
-///
-/// A system's custom material is as often declared in the skin or map bin its file links as
-/// in its own. Each one found is read there and carries that file as its `source`, and one no
-/// file within reach declares stays missing. `shaders` is the defs [`resolve_system`] took.
-pub fn search_linked_materials(
-    system: &mut VfxSystem,
-    linked: Vec<AssetRef>,
-    names: &dyn RowNames,
-    assets: &dyn AssetLookup,
-    shaders: Option<&BinDocument>,
-    read: &mut dyn FnMut(&AssetRef) -> Option<BinDocument>,
-) {
-    let missing = system.materials.iter_mut().collect();
-    find_linked_materials(missing, linked, names, assets, shaders, read);
 }
 
 /// One read of one system: the tree it is over, what it resolves against, and what it

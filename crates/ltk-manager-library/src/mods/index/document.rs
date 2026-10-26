@@ -124,6 +124,12 @@ impl ModLibrary {
         Ok(())
     }
 
+    /// Runs `f` while holding the index lock, so no library operation reads or writes the index.
+    pub fn with_index_held<T>(&self, f: impl FnOnce() -> T) -> T {
+        let _lock = self.index_lock.lock();
+        f()
+    }
+
     /// Read-only index access: acquire lock, load index, run closure.
     pub(crate) fn with_index<T>(
         &self,
@@ -413,8 +419,11 @@ pub(crate) fn archive_path(
         .join(format!("{slug}.{}", format.extension()))
 }
 
+/// Name of the library index under the storage directory.
+pub(crate) const INDEX_FILE: &str = "library.json";
+
 pub(crate) fn library_index_path(storage_dir: &Path) -> PathBuf {
-    storage_dir.join("library.json")
+    storage_dir.join(INDEX_FILE)
 }
 
 /// Load the library index from disk.

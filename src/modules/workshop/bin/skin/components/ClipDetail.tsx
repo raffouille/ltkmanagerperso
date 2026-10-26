@@ -3,25 +3,17 @@ import { type CSSProperties, use, useMemo } from "react";
 
 import { Code } from "@/components";
 import { m } from "@/i18n";
-import type { AssetRef, BinDocumentId, BinRow, GraphClip, KeyRef } from "@/lib/tauri";
+import type { BinDocumentId, BinRow, GraphClip, KeyRef } from "@/lib/tauri";
 import { twMerge } from "@/utils";
 
-import { AlsoCheck, FieldRows, None } from "../../classes/components/ClassCells";
-import { useBinDocument } from "../../documents/hooks/useBinDocument";
+import { AlsoCheck, FieldRows, NAME_COLUMN, None } from "../../classes/components/ClassCells";
 import { useBinRead } from "../../documents/hooks/useBinRead";
-import { Notice } from "../../shared/preview/Notice";
+import { useOwnRows } from "../../documents/hooks/useOwnRows";
 import { nameHash } from "../../shared/utils/binHash";
 import { nameColumn } from "../../shared/utils/textCut";
 import { RowDocumentContext } from "../../tree/state/rowFold";
 import { useHeldRows } from "../../tree/state/rowRegistry";
-import {
-  childCount,
-  entryKeyHash,
-  fieldHash,
-  objectKey,
-  PAGE_SIZE,
-  rowKey,
-} from "../../tree/utils/binRows";
+import { childCount, entryKeyHash, fieldHash, rowKey } from "../../tree/utils/binRows";
 import { skinQueries } from "../api/skinQueries";
 import type { GraphSource } from "../hooks/useGraphSource";
 import { SkinChoiceContext } from "../state/skinChoice";
@@ -47,39 +39,18 @@ interface ClipDetailProps {
 }
 
 /**
- * One clip's fields under its unfolded row, as the generic field rows draw any struct,
- * under the clips it plays.
+ * One clip's fields under its unfolded row, under the clips it plays.
  *
- * "The clips pane" in docs/ux/SKIN_EDITOR.md. The rows are read out of the document that
- * declares the graph: the one the graph was asked through, or the linked file the read
- * found it in.
+ * "The clips pane" in docs/ux/SKIN_EDITOR.md. A graph that the skin's document declares
+ * draws the clip as the generic field rows draw any struct. A graph that another bin declares
+ * draws the clip's typed fields, read-only.
  */
 export function ClipDetail({ source, clip }: ClipDetailProps) {
   const graph = useQuery(skinQueries.graph(source.document, source.graph));
-  const linked = graph.data?.source ?? null;
   const clips = graph.data?.clips ?? NO_CLIPS;
 
-  if (source.graph === null || source.document === null) return <None />;
-  if (linked !== null) {
-    return <LinkedClipFields asset={linked} graph={source.graph} clip={clip} clips={clips} />;
-  }
+  if (source.graph === null) return <None />;
   return <ClipFields document={source.document} graph={source.graph} clip={clip} clips={clips} />;
-}
-
-interface LinkedClipFieldsProps {
-  readonly asset: AssetRef;
-  readonly graph: string;
-  readonly clip: GraphClip;
-  readonly clips: readonly GraphClip[];
-}
-
-/** The clip's rows out of the linked file declaring the graph, held open beside the skin's own. */
-function LinkedClipFields({ asset, graph, clip, clips }: LinkedClipFieldsProps) {
-  const { state } = useBinDocument(asset, graph);
-  if (state.status !== "open") {
-    return <Notice text={m.workshop_bin_clip_graph_loading_label()} />;
-  }
-  return <ClipFields document={state.handle.document} graph={graph} clip={clip} clips={clips} />;
 }
 
 interface ClipFieldsProps {
@@ -92,18 +63,14 @@ interface ClipFieldsProps {
 
 /**
  * The clip's own rows, found under the graph's `mClipDataMap` by the key the clip is
- * addressed by.
+ * addressed by, and its typed fields where `document` does not declare the graph.
  *
  * Three reads: the graph's roots, the map's entries, the entry's fields. Each is one
  * page, and the map's entries cost what the map row says they do.
  */
 function ClipFields({ document, graph, clip, clips }: ClipFieldsProps) {
-  const root = objectKey(graph);
-  const roots = useBinRead(
-    document,
-    useMemo(() => [{ key: root, rows: PAGE_SIZE }], [root]),
-  );
-  const map = roots.get(root)?.rows.find((row) => fieldHash(row.path) === CLIP_DATA_MAP);
+  const { rows: roots, elsewhere } = useOwnRows(document, graph);
+  const map = roots.find((row) => fieldHash(row.path) === CLIP_DATA_MAP);
   const mapKey = map === undefined ? null : rowKey(map);
   const entries = useBinRead(
     document,
@@ -145,11 +112,46 @@ function ClipFields({ document, graph, clip, clips }: ClipFieldsProps) {
           style={column}
         >
           {clip.children.length > 0 && <Plays clip={clip} clips={clips} />}
+          {elsewhere && <TypedFields clip={clip} />}
           {rows.length === 0 && mapKey !== null && entryKey !== null && <None />}
           {rows.length > 0 && <FieldRows rows={rows} owner={owner} />}
         </div>
       </AlsoCheck>
     </RowDocumentContext>
+  );
+}
+
+/** The clip's fields as the graph read types them, one line each, which take no edits. */
+function TypedFields({ clip }: { clip: GraphClip }) {
+  const lines: [string, string | null][] = [
+    [m.workshop_bin_clip_column_type_label(), clip.class],
+    [m.workshop_bin_clip_column_file_label(), clip.animation?.path ?? null],
+    [m.workshop_bin_clip_column_track_label(), clip.track?.name ?? null],
+    [m.workshop_bin_clip_column_mask_label(), clip.mask?.name ?? null],
+    [m.workshop_bin_clip_column_sync_group_label(), clip.syncGroup?.name ?? null],
+    [m.workshop_bin_clip_field_tick_label(), clip.tickDuration?.toString() ?? null],
+    [m.workshop_bin_clip_field_flags_label(), clip.flags === 0 ? null : clip.flags.toString()],
+    [
+      m.workshop_bin_clip_field_interruption_label(),
+      clip.interruptionGroups.length === 0 ? null : clip.interruptionGroups.join(", "),
+    ],
+  ];
+
+  return (
+    <div data-ui="ClipDetail:typed" className="flex flex-col gap-0.5">
+      {lines
+        .filter((line): line is [string, string] => line[1] !== null)
+        .map(([label, value]) => (
+          <div key={label} className="flex min-h-6 items-center gap-2 px-1.5">
+            <span
+              className={twMerge(NAME_COLUMN, "shrink-0 font-sans text-surface-400 select-none")}
+            >
+              {label}
+            </span>
+            <span className="min-w-0 truncate text-surface-200 select-text">{value}</span>
+          </div>
+        ))}
+    </div>
   );
 }
 

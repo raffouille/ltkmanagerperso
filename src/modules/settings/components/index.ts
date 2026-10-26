@@ -1,8 +1,10 @@
 export { AboutSection } from "./AboutSection";
 export { AppearanceSection } from "./AppearanceSection";
+export { BackupSection } from "./BackupSection";
 export { BuiltinModsSection } from "./BuiltinModsSection";
 export { CacheSection } from "./CacheSection";
 export { DiagnosticsNoticeDialog } from "./DiagnosticsNoticeDialog";
+export { DiskUsageSection } from "./DiskUsageSection";
 export { GeneralSection } from "./GeneralSection";
 export { HotkeySection } from "./HotkeySection";
 export { IntegrationsSection } from "./IntegrationsSection";

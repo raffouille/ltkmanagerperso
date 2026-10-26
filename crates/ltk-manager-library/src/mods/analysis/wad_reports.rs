@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-const WAD_REPORTS_FILENAME: &str = "wad-reports.json";
+pub(crate) const WAD_REPORTS_FILENAME: &str = "wad-reports.json";
 /// v2 added the persisted `derived` categorization. Older (`v1`) caches load
 /// fine — their missing `derived` defaults to empty and is recomputed coarsely
 /// from `affected_wads` on read, then upgraded to precise on the next analysis.

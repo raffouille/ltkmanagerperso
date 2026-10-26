@@ -2,17 +2,26 @@
 //! the lists the settings pages pick from.
 
 use super::launcher::LauncherState;
-use crate::error::{AppResult, IpcResult};
-use crate::services::shared::off_thread;
+use super::shared::{data_move, off_thread};
+use crate::data_location::{self, DataMoveError, DataMovePlan};
+use crate::data_usage::{self, DataArea, DataUsage};
+use crate::error::{AppErrorResponse, AppResult, IpcResult};
+use crate::events::TauriEventSink;
+use crate::mods::ModLibraryState;
+use crate::patcher::PatcherState;
+use crate::settings_backup;
 use crate::state::{persist_settings, LaunchMode, Settings, SettingsState};
 use ltk_manager_assets::strings::StringKeyIndexState;
+use ltk_manager_base::config::Config;
+use ltk_manager_base::events::{BackendEvent, DataMoveProgress, DataMoveStage, EventSink as _};
 use ltk_manager_base::utils::game::GameDir;
 use ltk_manager_core::skin_names::skin_names;
 use ltk_manager_library::overlay::{
     champion_skins, forcible_map_skins, map_decorations, ForcibleMapSkin, MapDecoration,
 };
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt;
 
@@ -64,7 +73,7 @@ pub(crate) fn save_settings_inner(
 
     if settings.config.builtin_mods != had_builtin_mods {
         app_handle
-            .state::<crate::patcher::PatcherState>()
+            .state::<PatcherState>()
             .update_builtin_mods(&settings.config.builtin_mods);
     }
 
@@ -106,6 +115,149 @@ pub(crate) fn save_settings_inner(
     *current = settings;
 
     Ok(())
+}
+
+/// Shortest time between two progress events of a data directory move.
+const DATA_MOVE_PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Measures the disk usage of the manager's data.
+#[tauri::command]
+#[specta::specta]
+pub async fn data_usage(app_handle: AppHandle) -> IpcResult<DataUsage> {
+    off_thread(move || {
+        let config = app_handle.state::<SettingsState>().config();
+        let library = app_handle.state::<ModLibraryState>().0.clone();
+        data_usage::usage(&app_handle, &config, &library)
+    })
+    .await
+}
+
+/// Clears `area` of the manager's data. The overlay areas wait for the patcher to stop.
+#[tauri::command]
+#[specta::specta]
+pub async fn clear_data_area(area: DataArea, app_handle: AppHandle) -> IpcResult<()> {
+    off_thread(move || {
+        if matches!(area, DataArea::OverlayBuilds | DataArea::Leftovers) {
+            app_handle.state::<PatcherState>().reject_if_running()?;
+        }
+
+        let config = app_handle.state::<SettingsState>().config();
+        let library = app_handle.state::<ModLibraryState>().0.clone();
+        data_usage::clear(&app_handle, &config, &library, area)
+    })
+    .await
+}
+
+/// Writes the settings to a backup file at `path`.
+#[tauri::command]
+#[specta::specta]
+pub fn export_settings(path: PathBuf, state: State<SettingsState>) -> IpcResult<()> {
+    let settings = state.0.lock().clone();
+    settings_backup::export(&settings, &path)
+        .map_err(|error| AppErrorResponse::SettingsBackup { error })
+        .into()
+}
+
+/// Reads the backup at `path` over the current settings, and returns the result unsaved.
+///
+/// The caller saves the result through `save_settings`, which applies its side effects.
+#[tauri::command]
+#[specta::specta]
+pub fn read_settings_backup(path: PathBuf, state: State<SettingsState>) -> IpcResult<Settings> {
+    let current = state.0.lock().clone();
+    settings_backup::restore(&current, &path)
+        .map_err(|error| AppErrorResponse::SettingsBackup { error })
+        .into()
+}
+
+/// Plans a move of the data directory to `target`, or to the app data directory if `target` is `None`.
+#[tauri::command]
+#[specta::specta]
+pub async fn plan_data_move(
+    target: Option<PathBuf>,
+    app_handle: AppHandle,
+) -> IpcResult<DataMovePlan> {
+    data_move(move || {
+        let config = app_handle.state::<SettingsState>().config();
+        let (from, to) = data_move_folders(&app_handle, &config, target.as_deref())?;
+        data_location::plan(&from, &to)
+    })
+    .await
+}
+
+/// Moves the data directory to `target`, or to the app data directory if `target` is `None`.
+///
+/// Stores the new location and restarts the app, because the library watcher, the incident
+/// store and the patcher delivery read the data directory once at startup. The library index
+/// stays locked from the move until the settings name the new folder.
+#[tauri::command]
+#[specta::specta]
+pub async fn move_data(target: Option<PathBuf>, app_handle: AppHandle) -> IpcResult<()> {
+    data_move(move || {
+        if app_handle.state::<PatcherState>().is_running() {
+            return Err(DataMoveError::PatcherRunning);
+        }
+
+        let state = app_handle.state::<SettingsState>();
+        let mut settings = state.0.lock().clone();
+        let (from, to) = data_move_folders(&app_handle, &settings.config, target.as_deref())?;
+        let library = app_handle.state::<ModLibraryState>().0.clone();
+        let events = TauriEventSink::new(app_handle.clone());
+
+        library.with_index_held(|| {
+            let plan = data_location::plan(&from, &to)?;
+            let total = plan.bytes();
+            let mut last_report: Option<Instant> = None;
+            data_location::run(&plan, |entry, moved| {
+                let now = Instant::now();
+                if last_report.is_some_and(|at| now - at < DATA_MOVE_PROGRESS_INTERVAL) {
+                    return;
+                }
+                last_report = Some(now);
+                events.emit(BackendEvent::DataMoveProgress(DataMoveProgress {
+                    stage: DataMoveStage::Moving,
+                    current_entry: Some(entry.to_owned()),
+                    moved,
+                    total,
+                }));
+            })?;
+
+            settings.config.mod_storage_path = target;
+            persist_settings(&app_handle, &settings)?;
+            *state.0.lock() = settings;
+
+            events.emit(BackendEvent::DataMoveProgress(DataMoveProgress {
+                stage: DataMoveStage::Restarting,
+                current_entry: None,
+                moved: total,
+                total,
+            }));
+            Ok::<_, DataMoveError>(())
+        })?;
+
+        tracing::info!(from = %from.display(), to = %to.display(), "Moved the data directory, restarting");
+        crate::patcher::shutdown_resources(&app_handle);
+        app_handle.restart()
+    })
+    .await
+}
+
+/// Returns the current data directory and the one that `target` selects.
+fn data_move_folders(
+    app_handle: &AppHandle,
+    config: &Config,
+    target: Option<&Path>,
+) -> Result<(PathBuf, PathBuf), DataMoveError> {
+    let unavailable = || DataMoveError::Io {
+        detail: "the app data directory is unavailable".to_owned(),
+    };
+
+    let from = data_location::data_dir(app_handle, config).ok_or_else(unavailable)?;
+    let to = match target {
+        Some(target) => target.to_path_buf(),
+        None => crate::state::get_app_data_dir(app_handle).ok_or_else(unavailable)?,
+    };
+    Ok((from, to))
 }
 
 /// The settings a fresh install starts with.

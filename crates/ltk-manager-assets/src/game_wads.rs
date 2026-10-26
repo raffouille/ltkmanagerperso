@@ -8,6 +8,7 @@ use std::num::NonZeroUsize;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
+use camino::{Utf8Path, Utf8PathBuf};
 use lru::LruCache;
 use ltk_hashdb::LayeredHashDb;
 use ltk_wad::{ChunkDecoder, Wad, WadChunk, WadError, WadHash};
@@ -15,10 +16,28 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use ltk_manager_base::config::Config;
-use ltk_manager_base::error::{AppError, AppResult};
+use ltk_manager_base::error::{AppError, AppResult, Utf8PathRefExt as _};
 use ltk_manager_base::utils::game::GameDir;
 use ltk_manager_base::utils::natural_order::compare_names;
 use ltk_manager_base::utils::path::resolve_within;
+
+/// The chunk table of every archive of one source, keyed by chunk hash.
+pub use ltk_game_index::GameIndex as ChunkIndex;
+
+/// Resolves the chunk paths of an index build through the WAD tables, without allocating a path.
+#[derive(Debug, Clone, Copy)]
+pub struct ChunkPaths<'a>(pub &'a LayeredHashDb);
+
+impl ltk_game_index::ResolveWadPath for ChunkPaths<'_> {
+    fn for_each_named(&self, hashes: &[WadHash], visit: &mut dyn FnMut(usize, &str)) {
+        let keys: Vec<u64> = hashes.iter().map(|hash| hash.0).collect();
+        self.0.for_each_batch(&keys, |index, _, path| {
+            if let Some(path) = path {
+                visit(index, path);
+            }
+        });
+    }
+}
 
 /// Which set of an install's archives a reader browses.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -226,6 +245,38 @@ impl GameArchives {
             visit(path_hash, path, chunks[index].uncompressed_size() as u64);
         });
         Ok(())
+    }
+
+    /// Returns the chunk index of every archive that [`list`](Self::list) returns.
+    ///
+    /// For the game, reads the index from `cache` if the cached fingerprint matches the install,
+    /// and otherwise builds the index and writes it to `cache`. The League client's archives and
+    /// a call without `cache` build the index without a cache. An archive that does not mount
+    /// holds no chunks in the index.
+    ///
+    /// # Errors
+    ///
+    /// Fails with [`AppError::ValidationFailed`] if the root does not exist, with
+    /// [`AppError::InvalidPath`] if the root or `cache` is not UTF-8, and with
+    /// [`AppError::Other`] if an archive lies outside the root.
+    pub fn chunk_index(&self, cache: Option<&Path>) -> AppResult<ChunkIndex> {
+        let wads = self.list()?;
+        let root = self.root.try_as_utf8("archive directory")?;
+
+        if let (WadSource::Game, Some(cache)) = (self.source, cache) {
+            let cache = cache.try_as_utf8("chunk index cache")?;
+            let game_dir = root.parent().and_then(Utf8Path::parent).unwrap_or(root);
+            match ChunkIndex::load_or_build(game_dir, cache) {
+                Ok(index) => return Ok(index),
+                Err(e) => {
+                    tracing::warn!("Could not index the game archives through {cache}: {e}");
+                }
+            }
+        }
+
+        let names: Vec<Utf8PathBuf> = wads.into_iter().map(|wad| wad.name.into()).collect();
+        ChunkIndex::build_from_archives(root, &names)
+            .map_err(|e| AppError::Other(format!("Could not index the archives under {root}: {e}")))
     }
 
     /// Join `wad_name` under the root, rejecting anything that escapes it.

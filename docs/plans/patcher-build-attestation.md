@@ -97,10 +97,10 @@ names the client key and changes to name the attestation.
 
 ### Keys
 
-| Side    | Holds                                    | Where                                           |
-| ------- | ---------------------------------------- | ----------------------------------------------- |
-| Manager | Ed25519 private key, PKCS#8 PEM          | Repository secret `LTK_PATCHER_ATTESTATION_KEY` |
-| Service | Ed25519 public key, raw 32 bytes, base64 | Worker var `MANAGER_ATTESTATION_PUBLIC_KEYS`    |
+| Side    | Holds                                    | Where                                                                                                                      |
+| ------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Manager | Ed25519 private key, PKCS#8 PEM          | Repository secrets `LTK_PATCHER_ATTESTATION_KEY` for a release and `LTK_PATCHER_ATTESTATION_KEY_STAGING` for a pre-release |
+| Service | Ed25519 public key, raw 32 bytes, base64 | Worker var `MANAGER_ATTESTATION_PUBLIC_KEYS`                                                                               |
 
 The service var is an array, so a rotation adds the new key, deploys, and removes the old key
 after its last attested release is denied or past its end of life. `MANIFEST_PUBLIC_KEYS`

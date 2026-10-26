@@ -12,6 +12,21 @@ pub fn get_app_data_dir(app_handle: &AppHandle) -> Option<PathBuf> {
     app_handle.path().app_data_dir().ok()
 }
 
+/// Returns the file that caches the game's chunk index, under the app cache directory.
+///
+/// Returns `None` if the app cache directory cannot be resolved.
+pub fn chunk_index_cache_path(app_handle: &AppHandle) -> Option<PathBuf> {
+    game_index_cache_dir(app_handle).map(|dir| dir.join("chunks.bin"))
+}
+
+/// Returns the directory of the game's index caches, under the app cache directory.
+///
+/// Returns `None` if the app cache directory cannot be resolved.
+pub fn game_index_cache_dir(app_handle: &AppHandle) -> Option<PathBuf> {
+    let dir = app_handle.path().app_cache_dir().ok()?;
+    Some(dir.join("game-index"))
+}
+
 /// Get the path to the settings file.
 pub fn get_settings_file_path(app_handle: &AppHandle) -> Option<PathBuf> {
     get_app_data_dir(app_handle).map(|p| p.join("settings.json"))
@@ -135,9 +150,8 @@ pub enum OpenOn {
 /// build the overlay, start the patcher, then ask the Riot Client to start
 /// League. Both actions stay reachable from the button's menu either way.
 ///
-/// Classic is the default while the launcher is experimental: it is the
-/// behaviour every existing install already has, and it depends on nothing
-/// outside this app.
+/// Classic is the default because it is the behaviour every existing install
+/// already has, and it depends on nothing outside this app.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, specta::Type)]
 #[serde(rename_all = "lowercase")]
 pub enum LaunchMode {
@@ -343,7 +357,6 @@ mod tests {
         assert!(settings.config.wad_blocklist.is_empty());
         assert!(settings.config.auto_categorization_enabled);
         assert!(settings.show_mod_tags);
-        assert!(settings.config.enforce_skinhack_scan);
         assert!(!settings.config.apply_string_overrides_to_all_locales);
         assert!(!settings.config.verbose_patcher_logging);
         assert!(!settings.config.full_wad_scan);
@@ -380,8 +393,7 @@ mod tests {
     }
 
     /// A settings file written before the manager could launch anything keeps
-    /// the patcher-only button it was written with - the launcher is opt-in
-    /// while it is experimental.
+    /// the patcher-only button it was written with.
     #[test]
     fn launch_mode_defaults_to_classic_when_absent() {
         let json = r#"{"firstRunComplete": false, "theme": "system", "accentColor": {}, "patchTft": false, "migrationDismissed": false}"#;
@@ -454,7 +466,7 @@ mod tests {
         };
         let json = serde_json::to_value(&settings).unwrap();
         assert_eq!(json["leaguePath"], "/game");
-        assert_eq!(json["enforceSkinhackScan"], true);
+        assert_eq!(json["blockScriptsWad"], true);
         assert!(json.get("config").is_none());
     }
 

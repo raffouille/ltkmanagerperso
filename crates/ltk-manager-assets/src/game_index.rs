@@ -1,14 +1,16 @@
 //! Every archive of an install, folded into one directory tree.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BinaryHeap, HashSet};
+use std::collections::{BTreeMap, BinaryHeap};
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use ltk_game_index::ChunkRow;
 use ltk_hashdb::LayeredHashDb;
 use ltk_wad::{WadHash, hex_name};
 use serde::{Deserialize, Serialize};
 
-use crate::game_wads::{GameArchives, WadSource};
+use crate::game_wads::{ChunkIndex, GameArchives, WadSource};
 use ltk_manager_base::error::AppResult;
 use ltk_manager_base::generation::{Generation, STALE_CHECK_INTERVAL, line};
 use ltk_manager_base::matcher::{FindQuery, Query, Range, SearchHits, letter_mask, mask_covers};
@@ -172,11 +174,12 @@ pub type PathSearchGeneration = Generation<line::PathField>;
 /// Every archive of an install merged into one deduplicated directory tree.
 ///
 /// A chunk several archives carry is one file here. The game ships the same
-/// copy of a shared chunk in every archive that needs it, so the first read
-/// wins and the rest are dropped.
+/// copy of a shared chunk in every archive that needs it, so the file keeps
+/// the first archive that contains it.
 ///
-/// Built once and read many times. A build walks every archive of the install
-/// and costs seconds, while [`read_dir`](Self::read_dir) is a lookup.
+/// Built once and read many times from a [`ChunkIndex`]. A build resolves the
+/// path of every chunk of the install, while [`read_dir`](Self::read_dir) is a
+/// lookup.
 ///
 /// Every name sits in one string and every directory's files and children in
 /// one array each, because an install holds close to a million chunks and an
@@ -258,16 +261,20 @@ struct BuildDir {
 impl GameIndex {
     /// Merge every archive of one source into one tree.
     ///
-    /// An archive that cannot be read is logged and skipped, because one
-    /// corrupt file in an install is not a reason to show no tree at all.
+    /// Builds the chunk index of `archives` without a cache, then calls
+    /// [`over`](Self::over).
     ///
     /// # Errors
     ///
-    /// Fails when the archives cannot be enumerated, which is the condition
-    /// [`GameArchives::list`] reports.
+    /// Fails if [`GameArchives::chunk_index`] fails.
     pub fn build(archives: &GameArchives, resolver: &LayeredHashDb) -> AppResult<Self> {
-        let wads = archives.list()?;
+        Ok(Self::over(&archives.chunk_index(None)?, resolver))
+    }
 
+    /// Merges every chunk of `chunks` into one tree, with the paths that `resolver` resolves.
+    ///
+    /// A chunk that several archives contain is one file, read from the first of them.
+    pub fn over(chunks: &ChunkIndex, resolver: &LayeredHashDb) -> Self {
         let mut builder = Builder {
             dirs: vec![BuildDir::default()],
             unknown: Vec::new(),
@@ -275,29 +282,30 @@ impl GameIndex {
             file_count: 0,
         };
 
-        /* By hash rather than by path: an unnamed chunk has no path to compare,
-        and the hash is what makes two archives' copies the same file. */
-        let mut seen: HashSet<u64> = HashSet::new();
-
-        for (ordinal, wad) in wads.iter().enumerate() {
-            let Ok(ordinal) = u16::try_from(ordinal) else {
-                tracing::warn!(
-                    "Skipping game archive {}: the install has too many archives",
-                    wad.name
-                );
-                continue;
-            };
-            let read = archives.for_each_chunk(&wad.name, resolver, |path_hash, path, size| {
-                if seen.insert(path_hash) {
-                    builder.insert(path_hash, path, size, ordinal);
-                }
-            });
-            if let Err(e) = read {
-                tracing::warn!("Skipping unreadable game archive {}: {e}", wad.name);
+        let (hashes, rows): (Vec<u64>, Vec<&ChunkRow>) =
+            chunks.chunks().map(|(hash, row)| (hash.0, row)).unzip();
+        let mut unlisted = 0usize;
+        resolver.for_each_batch(&hashes, |at, path_hash, path| {
+            let row = rows[at];
+            match u16::try_from(row.first_holder().index()) {
+                Ok(wad) => builder.insert(path_hash, path, row.size(), wad),
+                Err(_) => unlisted += 1,
             }
+        });
+
+        if unlisted > 0 {
+            tracing::warn!(
+                "Skipped {unlisted} game chunks: the install has more than {} archives",
+                u16::MAX
+            );
         }
 
-        Ok(builder.finish(wads.iter().map(|wad| wad.name.clone()).collect()))
+        let wads = chunks
+            .archives()
+            .iter()
+            .map(|archive| archive.name.clone())
+            .collect();
+        builder.finish(wads)
     }
 
     /// List one directory, or `None` when nothing in the index has that path.
@@ -1093,9 +1101,20 @@ fn split_ranges(ranges: &[Range], boundary: u32) -> (Vec<Range>, Vec<Range>) {
 pub struct GameIndexState {
     game: LazySlot<GameIndex>,
     lcu: LazySlot<GameIndex>,
+    /// The file that caches the game's [`ChunkIndex`], or `None` for no cache.
+    chunk_cache: Option<PathBuf>,
 }
 
 impl GameIndexState {
+    /// Returns a state that caches the game's chunk index in the file `chunk_cache`.
+    #[must_use]
+    pub fn cached_at(chunk_cache: PathBuf) -> Self {
+        Self {
+            chunk_cache: Some(chunk_cache),
+            ..Self::default()
+        }
+    }
+
     /// Return the index over `archives`, building it on first use.
     ///
     /// `resolver` is read only when a build happens. The lock is held across
@@ -1111,10 +1130,19 @@ impl GameIndexState {
         resolver: &LayeredHashDb,
     ) -> AppResult<Arc<GameIndex>> {
         self.slot(archives.source())
-            .get_or_try_init(|| GameIndex::build(archives, resolver))
+            .get_or_try_init(|| Ok(GameIndex::over(&self.chunk_index(archives)?, resolver)))
     }
 
-    /// Drop the built index of one source, so its next read walks the install again.
+    /// Returns the chunk index of `archives`, from the cache file of the state if it matches.
+    ///
+    /// # Errors
+    ///
+    /// Fails if [`GameArchives::chunk_index`] fails.
+    pub fn chunk_index(&self, archives: &GameArchives) -> AppResult<ChunkIndex> {
+        archives.chunk_index(self.chunk_cache.as_deref())
+    }
+
+    /// Drop the built index of one source, so its next read reads the install again.
     pub fn clear(&self, source: WadSource) {
         self.slot(source).clear();
     }

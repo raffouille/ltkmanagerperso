@@ -58,8 +58,6 @@ export type AddableFields = {
  *  map holds, and every key is named by the tables or written as its hex.
  */
 export type AnimationGraph = {
-	/**  The linked file declaring the graph, and none where the open document does. */
-	source: AssetRef | null,
 	/**  `mClipDataMap`. */
 	clips: GraphClip[],
 	/**  `mTrackDataMap`. */
@@ -91,6 +89,10 @@ export type Announcement = {
 export type AppErrorResponse = 
 /**  An external tool installation failed. */
 { code: "INTEGRATION"; error: IntegrationError } | 
+/**  A settings backup could not be written or read. The variant says which. */
+{ code: "SETTINGS_BACKUP"; error: SettingsBackupError } | 
+/**  A move of the data directory was refused or failed. The variant says which. */
+{ code: "DATA_MOVE"; error: DataMoveError } | 
 /**  File system I/O failed. */
 { code: "IO"; detail: string } | 
 /**  JSON could not be read or written. */
@@ -190,6 +192,12 @@ export type AppInfo = {
 	logFilePath: string | null,
 	os: string,
 	arch: string,
+};
+
+/**  The bytes that one [`DataArea`] takes. */
+export type AreaUsage = {
+	area: DataArea,
+	bytes: number,
 };
 
 /**  What an asset holds, for a viewer that reports it beside the preview. */
@@ -981,13 +989,6 @@ export type Config_Deserialize = {
 	/**  Enabling a mod moves it to the front of its folder. Off by default. */
 	promoteEnabledMods?: boolean,
 	/**
-	 *  Whether to enforce the anti-skinhack scan while patching. When on
-	 *  (default), a champion WAD that fails the scan aborts patching. When off,
-	 *  the `CSLOL_HOOK_OPT_OUT_AH_V1` hook flag is set so failures are
-	 *  downgraded to warnings and flagged mods load anyway. Default: true.
-	 */
-	enforceSkinhackScan?: boolean,
-	/**
 	 *  Whether mods' string overrides are applied to every installed locale
 	 *  instead of only the locale the League client is configured to use.
 	 *  Default: false (current locale only).
@@ -1101,13 +1102,6 @@ export type Config_Serialize = {
 	autoHealthCheckEnabled: boolean,
 	/**  Enabling a mod moves it to the front of its folder. Off by default. */
 	promoteEnabledMods: boolean,
-	/**
-	 *  Whether to enforce the anti-skinhack scan while patching. When on
-	 *  (default), a champion WAD that fails the scan aborts patching. When off,
-	 *  the `CSLOL_HOOK_OPT_OUT_AH_V1` hook flag is set so failures are
-	 *  downgraded to warnings and flagged mods load anyway. Default: true.
-	 */
-	enforceSkinhackScan: boolean,
 	/**
 	 *  Whether mods' string overrides are applied to every installed locale
 	 *  instead of only the locale the League client is configured to use.
@@ -1277,6 +1271,89 @@ export type CurveKeys = {
 	values: (number | null)[],
 	/**  `InterpModes`, one per span. */
 	modes: number[],
+};
+
+/**  A part of the manager's data on disk. */
+export type DataArea = 
+/**  The installed mods, which no clear removes. */
+"mods" | 
+/**  The overlay of each profile and the projects of the built-in mods. */
+"overlayBuilds" | 
+/**  The unpacked copies of packed mods that the previews read. */
+"modPreviews" | 
+/**  The translated shaders. */
+"shaders" | 
+/**  Overlay artifacts at the root of the data directory, which no build reads. */
+"leftovers" | 
+/**  The cache folders of the webview. Only on Windows. */
+"webviewCache";
+
+/**  One entry of the data directory that a move carries. */
+export type DataEntry = {
+	/**  The entry's name under the data directory. */
+	name: string,
+	/**  Bytes of the files under the entry. */
+	bytes: number,
+};
+
+/**  A reason that a data directory move is refused or failed. */
+export type DataMoveError = 
+/**  The new folder is the current data directory. */
+{ kind: "sameFolder" } | 
+/**  The new folder is inside an entry that the move carries. */
+{ kind: "insideData" } | 
+/**  Both folders hold data entries with these names. */
+{ kind: "occupied"; entries: string[] } | 
+/**  The patcher is running and holds files of the data directory. */
+{ kind: "patcherRunning" } | 
+/**  The volume of the new folder has less free space than the move needs. */
+{ kind: "noSpace"; needed: number; available: number } | 
+/**  A read, a write or a rename failed. */
+{ kind: "io"; detail: string };
+
+/**  What a move of the data directory does. */
+export type DataMoveKind = 
+/**  The entries of the current directory move into the new folder. */
+"move" | 
+/**  The new folder holds a library and the current directory holds none, so nothing moves. */
+"adopt";
+
+/**  A move of the data directory, planned before anything is written. */
+export type DataMovePlan = {
+	kind: DataMoveKind,
+	/**  The current data directory. */
+	from: string,
+	/**  The new data directory. */
+	to: string,
+	/**  The entries that move. Empty for [`DataMoveKind::Adopt`]. */
+	entries: DataEntry[],
+};
+
+/**  Progress of a move of the data directory to another folder. */
+export type DataMoveProgress = {
+	stage: DataMoveStage,
+	/**  Name of the entry being moved, under the data directory. */
+	currentEntry: string | null,
+	/**  Bytes moved so far. */
+	moved: number,
+	/**  Bytes that the whole move carries. */
+	total: number,
+};
+
+/**  Stage of a move of the data directory to another folder. */
+export type DataMoveStage = 
+/**  The entries are being renamed or copied into the new folder. */
+"moving" | 
+/**  The entries are in the new folder and the app restarts on the new location. */
+"restarting";
+
+/**  The disk usage of the manager's data. */
+export type DataUsage = {
+	/**  The data directory. */
+	location: string,
+	areas: AreaUsage[],
+	/**  `true` if the next start clears the webview cache. */
+	webviewClearPending: boolean,
 };
 
 /**  One layer's declarations manifest, read for an outline. */
@@ -1835,8 +1912,8 @@ export type EffectSystem = {
 	key: string,
 	/**  The `VfxSystemDefinitionData` object, `0x` and eight hex digits. */
 	system: string,
-	/**  The linked file declaring the system, and none where the skin's own document does. */
-	source: AssetRef | null,
+	/**  The system's path, where a table names it. */
+	name: string | null,
 };
 
 /**  How the game ended, as far as anything said. */
@@ -3042,20 +3119,6 @@ export type HistoryStep =
 /**  The action a global hotkey triggers when pressed. */
 export type HotkeyAction = "reloadMods" | "killLeague";
 
-/**  One effect a skin wears for as long as the character stands. */
-export type IdleEffect = {
-	/**  `effectKey`, `0x` and eight hex digits. */
-	effectKey: string,
-	/**  The system the skin's resolver maps the key to, where this document declares it. */
-	system: string | null,
-	/**  `boneName`, the joint the effect rides. */
-	bone: string,
-	/**  `targetBoneName`, the joint it aims at, and empty for one that aims at none. */
-	targetBone: string,
-	/**  `Position`, the effect's offset from its joint. */
-	position: [(number | null), (number | null), (number | null)],
-};
-
 /**  The `.modignore` line that keeps an entry out of a package. */
 export type IgnoreMatch = {
 	/**  The pattern as written, its trailing `/` included. */
@@ -3460,6 +3523,25 @@ export type IntegrationStatus = {
 	operation: IntegrationOperation | null,
 };
 
+/**
+ *  One effect a skin draws on a joint: an idle effect, or an effect of a persistent condition.
+ * 
+ *  `PersistentVfxData` declares no `Position`, so the effect of a condition has a zero offset.
+ */
+export type JointEffect = {
+	/**
+	 *  `effectKey`, `0x` and eight hex digits, or the hash of `effectName` if the effect has
+	 *  no key. [`SkinModel::effect_systems`](super::SkinModel::effect_systems) maps it to its system.
+	 */
+	effectKey: string,
+	/**  `boneName`, the joint the effect rides. */
+	bone: string,
+	/**  `targetBoneName`, the joint it aims at, and empty for one that aims at none. */
+	targetBone: string,
+	/**  `Position`, the effect's offset from its joint. */
+	position: [(number | null), (number | null), (number | null)],
+};
+
 /**  One `DynamicsJointTreeData`: a root joint and the joints under it left unsimulated. */
 export type JointTree = {
 	/**  The hash path of the tree under the skin object. */
@@ -3547,9 +3629,8 @@ export type LaunchKind = "match" | "replay" | "spectator" | "pbe";
  *  build the overlay, start the patcher, then ask the Riot Client to start
  *  League. Both actions stay reachable from the button's menu either way.
  * 
- *  Classic is the default while the launcher is experimental: it is the
- *  behaviour every existing install already has, and it depends on nothing
- *  outside this app.
+ *  Classic is the default because it is the behaviour every existing install
+ *  already has, and it depends on nothing outside this app.
  */
 export type LaunchMode = "classic" | "modern";
 
@@ -4422,12 +4503,10 @@ export type MaterialPreview = {
 	/**  The material's path, where a table names it. */
 	name: string | null,
 	/**
-	 *  The document declares no object under the link, so every slot is empty and the
-	 *  submesh draws as an error rather than as a guess.
+	 *  No bin the read reached declares an object under the link, so every slot is empty and
+	 *  the submesh draws as an error rather than as a guess.
 	 */
 	missing: boolean,
-	/**  The linked file declaring the material, and none where the document read does. */
-	source: AssetRef | null,
 	/**
 	 *  `dynamicMaterial` is set, so the slots are the static values of an animated
 	 *  material.
@@ -4472,15 +4551,15 @@ export type MaterialProgram = {
 	warnings: MaterialWarning[],
 };
 
-/**  Where the materials a program read names are declared. */
+/**
+ *  The bin a program read resolves its materials against.
+ * 
+ *  A material that the bin does not declare is read from the first bin of its lookup that
+ *  does, so a caller names a material by its hash alone.
+ */
 export type MaterialSource = 
 /**  An open document, such as a skin's bin. */
 { kind: "document"; document: BinDocumentId } | 
-/**
- *  A bin read for the call, such as a file a skin links, resolved against the
- *  project of `document` where one is open and against the install alone otherwise.
- */
-{ kind: "file"; asset: AssetRef; document: BinDocumentId | null } | 
 /**
  *  A map's `.materials.bin`, located as `read_map` locates it: in the project of
  *  `document` first, where one is open, and in the install second.
@@ -5689,6 +5768,21 @@ export type PendingUpdate = {
 	body: string | null,
 };
 
+/**
+ *  One entry of `PersistentEffectConditions`, which the engine applies while its conditions
+ *  are true.
+ * 
+ *  The conditions themselves are left out, because the preview does not evaluate them.
+ */
+export type PersistentCondition = {
+	/**  `PersistentVfxs`, in the order the entry lists them. */
+	effects: JointEffect[],
+	/**  `SubmeshesToShow`, each the hash of a submesh name, `0x` and eight hex digits. */
+	shown: string[],
+	/**  `SubmeshesToHide`, each the hash of a submesh name, `0x` and eight hex digits. */
+	hidden: string[],
+};
+
 export type PlatformSupport = {
 	os: string,
 	patcherAvailable: boolean,
@@ -6780,6 +6874,15 @@ export type SessionStarted = {
  */
 export type Settings = Settings_Serialize | Settings_Deserialize;
 
+/**  A reason that a settings backup cannot be written or read. */
+export type SettingsBackupError = 
+/**  The file is not a settings backup. */
+{ kind: "notABackup" } | 
+/**  A newer version of the manager wrote the backup. */
+{ kind: "newerVersion"; version: number; supported: number } | 
+/**  The file cannot be read or written. */
+{ kind: "io"; detail: string };
+
 /**
  *  Application settings: UI/shell preferences plus the flattened core
  *  [`Config`]. The flatten keeps `settings.json` a single document, so the
@@ -7128,14 +7231,16 @@ export type SkinModel = {
 	/**  `skinAnimationProperties.animationGraphData`, `0x` and eight hex digits. */
 	animationGraph: string | null,
 	/**  `idleParticlesEffects`, in the order the skin lists them. */
-	idleEffects: IdleEffect[],
+	idleEffects: JointEffect[],
+	/**  `PersistentEffectConditions`, in the order the skin lists them. */
+	persistentConditions: PersistentCondition[],
 	/**
-	 *  Every effect key `mResourceResolver` maps to a system some file within reach declares.
+	 *  Every effect key `mResourceResolver` maps to a system that a bin the read reached
+	 *  declares, in key order.
 	 * 
 	 *  A particle event of the graph names a key of this map, and the graph is read from
 	 *  another file, so the map crosses with the skin for the viewport to look the key up.
-	 *  [`resolve_skin`] lists the systems the document itself declares, and
-	 *  [`search_linked_systems`] adds those its linked files declare.
+	 *  [`ObjectLookup::skin`] reads the resolver and its systems from the bins of the lookup.
 	 */
 	effectSystems: EffectSystem[],
 	/**  `skinMeshProperties.rigPoseModifierData`, in the order the skin lists them. */

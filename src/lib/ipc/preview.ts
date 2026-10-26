@@ -37,8 +37,9 @@ export const commands = {
 	 *  The materials `targets` name, each with a translated program per pass.
 	 * 
 	 *  An entry is an object hash as `0x` and eight hex digits, or an object path, which is
-	 *  hashed. The answer is one for one and in order, null where the bin declares no object
-	 *  under the entry or the path reaches no struct. The shader defs are read beside the bin,
+	 *  hashed. Each target is read from the first bin of the lookup over the source that declares
+	 *  its entry. The answer is one for one and in order, null where no bin of the lookup declares
+	 *  the entry or the path reaches no struct. The shader defs are read beside the bin,
 	 *  the project's copy first, and a read they refuse leaves every pass without a shader and
 	 *  says so. Translations are kept under the app's data directory by the blob's hash.
 	 * 
@@ -187,9 +188,8 @@ export const commands = {
 	 * 
 	 *  `entry` is the `SkinCharacterDataProperties` object's hash as `0x` and eight hex
 	 *  digits. The shader defs are read beside the skin, the project's copy first, and a
-	 *  read they refuse leaves every material on its own fields. A material or an effect
-	 *  system the document does not declare is looked for through the files it links, as a
-	 *  graph is.
+	 *  read they refuse leaves every material on its own fields. A material, the resolver or an
+	 *  effect system that the document does not declare is read from the files it links.
 	 */
 	readSkin: (document: BinDocumentId, entry: string) => __TAURI_INVOKE<({ ok: true; value: SkinModel }) & { error?: never } | ({ ok: false; error: AppErrorResponse }) & { value?: never }>("plugin:preview|read_skin", { document, entry }),
 	/**
@@ -232,15 +232,27 @@ export const commands = {
 	 *  in no archive, for a path that leaves its archive, and for a failed write.
 	 */
 	saveSkinColliders: (document: BinDocumentId, path: string, shapes: ColliderShapes) => __TAURI_INVOKE<({ ok: true; value: AssetRef }) & { error?: never } | ({ ok: false; error: AppErrorResponse }) & { value?: never }>("plugin:preview|save_skin_colliders", { document, path, shapes }),
+	/**
+	 *  The bin that declares the object `entry`, found the way every read of `document` finds it:
+	 *  the open document first, then the files it links.
+	 * 
+	 *  `entry` is the object's hash as `0x` and eight hex digits. Returns the document's own asset
+	 *  if it declares the object, and `None` if no bin of the lookup does.
+	 * 
+	 *  # Errors
+	 * 
+	 *  Fails if `entry` is not a hash or no document is open under `document`.
+	 */
+	locateObject: (document: BinDocumentId, entry: string) => __TAURI_INVOKE<({ ok: true; value: AssetRef | null }) & { error?: never } | ({ ok: false; error: AppErrorResponse }) & { value?: never }>("plugin:preview|locate_object", { document, entry }),
 	/**  The missile inputs written on one spell in an open document. */
 	readSpell: (document: BinDocumentId, entry: string) => __TAURI_INVOKE<({ ok: true; value: SpellPreview }) & { error?: never } | ({ ok: false; error: AppErrorResponse }) & { value?: never }>("plugin:preview|read_spell", { document, entry }),
 	/**
 	 *  One particle system of an open document, with every reference resolved.
 	 * 
 	 *  `entry` is the object's hash as `0x` and eight hex digits. A class or field the hash
-	 *  tables leave unnamed takes the meta schema's name. A child system or a custom material
-	 *  that the document does not declare is looked for through the files it links, and a
-	 *  linked file that cannot be read is passed over.
+	 *  tables leave unnamed takes the meta schema's name. The system, a child system or a custom
+	 *  material that the document does not declare is looked for through the files it links, and
+	 *  a linked file that cannot be read is passed over.
 	 */
 	readVfxSystem: (document: BinDocumentId, entry: string) => __TAURI_INVOKE<({ ok: true; value: VfxSystem }) & { error?: never } | ({ ok: false; error: AppErrorResponse }) & { value?: never }>("plugin:preview|read_vfx_system", { document, entry }),
 	/**
@@ -258,4 +270,4 @@ export const commands = {
 };
 
 /* Constants */
-export const commandNames = {"bakeSkinTangents":"plugin:preview|bake_skin_tangents","detectRitobinIntegration":"plugin:preview|detect_ritobin_integration","locateFilesNear":"plugin:preview|locate_files_near","locateMapFiles":"plugin:preview|locate_map_files","locateModSkin":"plugin:preview|locate_mod_skin","mapGeometryClose":"plugin:preview|map_geometry_close","mapGeometryEdit":"plugin:preview|map_geometry_edit","mapGeometryExport":"plugin:preview|map_geometry_export","mapGeometryMeshes":"plugin:preview|map_geometry_meshes","mapGeometryOpen":"plugin:preview|map_geometry_open","mapGeometryReimportInspect":"plugin:preview|map_geometry_reimport_inspect","mapGeometrySave":"plugin:preview|map_geometry_save","mapGeometryStep":"plugin:preview|map_geometry_step","mapImportInspect":"plugin:preview|map_import_inspect","mapImportMaterials":"plugin:preview|map_import_materials","openAssetInRitobin":"plugin:preview|open_asset_in_ritobin","readAnimationGraph":"plugin:preview|read_animation_graph","readAssetInfo":"plugin:preview|read_asset_info","readClipHeader":"plugin:preview|read_clip_header","readEngineProgram":"plugin:preview|read_engine_program","readMap":"plugin:preview|read_map","readMapCharacters":"plugin:preview|read_map_characters","readMapNameReferences":"plugin:preview|read_map_name_references","readMapOutline":"plugin:preview|read_map_outline","readMapParticles":"plugin:preview|read_map_particles","readMapVariants":"plugin:preview|read_map_variants","readMaterialPrograms":"plugin:preview|read_material_programs","readShaderProgram":"plugin:preview|read_shader_program","readSkin":"plugin:preview|read_skin","readSpell":"plugin:preview|read_spell","readVfxSystem":"plugin:preview|read_vfx_system","saveAssetCopy":"plugin:preview|save_asset_copy","saveSkinColliders":"plugin:preview|save_skin_colliders","vfxChildTargets":"plugin:preview|vfx_child_targets","vfxMissileSpells":"plugin:preview|vfx_missile_spells","vfxTemplates":"plugin:preview|vfx_templates"} as const;
+export const commandNames = {"bakeSkinTangents":"plugin:preview|bake_skin_tangents","detectRitobinIntegration":"plugin:preview|detect_ritobin_integration","locateFilesNear":"plugin:preview|locate_files_near","locateMapFiles":"plugin:preview|locate_map_files","locateModSkin":"plugin:preview|locate_mod_skin","locateObject":"plugin:preview|locate_object","mapGeometryClose":"plugin:preview|map_geometry_close","mapGeometryEdit":"plugin:preview|map_geometry_edit","mapGeometryExport":"plugin:preview|map_geometry_export","mapGeometryMeshes":"plugin:preview|map_geometry_meshes","mapGeometryOpen":"plugin:preview|map_geometry_open","mapGeometryReimportInspect":"plugin:preview|map_geometry_reimport_inspect","mapGeometrySave":"plugin:preview|map_geometry_save","mapGeometryStep":"plugin:preview|map_geometry_step","mapImportInspect":"plugin:preview|map_import_inspect","mapImportMaterials":"plugin:preview|map_import_materials","openAssetInRitobin":"plugin:preview|open_asset_in_ritobin","readAnimationGraph":"plugin:preview|read_animation_graph","readAssetInfo":"plugin:preview|read_asset_info","readClipHeader":"plugin:preview|read_clip_header","readEngineProgram":"plugin:preview|read_engine_program","readMap":"plugin:preview|read_map","readMapCharacters":"plugin:preview|read_map_characters","readMapNameReferences":"plugin:preview|read_map_name_references","readMapOutline":"plugin:preview|read_map_outline","readMapParticles":"plugin:preview|read_map_particles","readMapVariants":"plugin:preview|read_map_variants","readMaterialPrograms":"plugin:preview|read_material_programs","readShaderProgram":"plugin:preview|read_shader_program","readSkin":"plugin:preview|read_skin","readSpell":"plugin:preview|read_spell","readVfxSystem":"plugin:preview|read_vfx_system","saveAssetCopy":"plugin:preview|save_asset_copy","saveSkinColliders":"plugin:preview|save_skin_colliders","vfxChildTargets":"plugin:preview|vfx_child_targets","vfxMissileSpells":"plugin:preview|vfx_missile_spells","vfxTemplates":"plugin:preview|vfx_templates"} as const;

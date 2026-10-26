@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { AssetRef, GraphClip, IdleEffect, MaterialPreview, SkinModel } from "@/lib/tauri";
+import type { AssetRef, GraphClip, JointEffect, MaterialPreview, SkinModel } from "@/lib/tauri";
 import { createPose, jointAnchor, type JointModel, type SkeletonModel } from "@/modules/viewport";
 
 import {
   BIND_POSE,
   bindingOf,
-  idleRig,
+  jointRig,
   nearestValue,
   openingClip,
   parameterValues,
@@ -32,6 +32,7 @@ function skin(over: Partial<SkinModel> = {}): SkinModel {
     selfIllumination: null,
     animationGraph: null,
     idleEffects: [],
+    persistentConditions: [],
     effectSystems: [],
     poseModifiers: [],
     sockets: [],
@@ -44,7 +45,6 @@ function material(hash: string, base: AssetRef | null): MaterialPreview {
     hash,
     name: null,
     missing: false,
-    source: null,
     animated: false,
     shader: null,
     base:
@@ -121,10 +121,9 @@ const SKELETON: SkeletonModel = {
   influences: Uint32Array.of(0, 1),
 };
 
-function effect(over: Partial<IdleEffect> = {}): IdleEffect {
+function effect(over: Partial<JointEffect> = {}): JointEffect {
   return {
     effectKey: "0x00000001",
-    system: "0x00000002",
     bone: "r_hand",
     targetBone: "",
     position: [0, 5, 0],
@@ -290,11 +289,11 @@ describe("textureAssets and bindingOf", () => {
   });
 });
 
-describe("idleRig", () => {
+describe("jointRig", () => {
   const pose = createPose(SKELETON, null);
 
   it("rides the joint its bone names, offset and scaled, once and on the ground", () => {
-    const rig = idleRig(pose, effect(), 2);
+    const rig = jointRig(pose, effect(), 2);
     if (rig.motion.kind !== "bone") throw new Error("an idle effect rides a bone");
 
     expect(rig.life).toBe("once");
@@ -304,28 +303,28 @@ describe("idleRig", () => {
   });
 
   it("aims at the joint its target bone names", () => {
-    const rig = idleRig(pose, effect({ targetBone: "Root" }), 1);
+    const rig = jointRig(pose, effect({ targetBone: "Root" }), 1);
     if (rig.motion.kind !== "bone") throw new Error("an idle effect rides a bone");
 
     expect(rig.motion.target?.originAt(0)).toEqual(jointAnchor(pose, 0).originAt(0));
   });
 
   it("aims nowhere at a target bone the skeleton lacks", () => {
-    const rig = idleRig(pose, effect({ targetBone: "Weapon" }), 1);
+    const rig = jointRig(pose, effect({ targetBone: "Weapon" }), 1);
     if (rig.motion.kind !== "bone") throw new Error("an idle effect rides a bone");
 
     expect(rig.motion.target).toBeNull();
   });
 
   it("stands at the skeleton's origin for a bone the skeleton lacks", () => {
-    const rig = idleRig(pose, effect({ bone: "Weapon", position: [1, 2, 3] }), 1);
+    const rig = jointRig(pose, effect({ bone: "Weapon", position: [1, 2, 3] }), 1);
     if (rig.motion.kind !== "bone") throw new Error("an idle effect rides a bone");
 
     expect(rig.motion.anchor.originAt(0)).toEqual([1, 2, 3]);
   });
 
   it("resolves its joints by name without regard to case", () => {
-    const rig = idleRig(pose, effect(), 2);
+    const rig = jointRig(pose, effect(), 2);
 
     expect(rig.joints?.("r_hand")?.originAt(0)).toEqual(
       jointAnchor(pose, 1, [0, 0, 0], 2).originAt(0),
@@ -336,7 +335,7 @@ describe("idleRig", () => {
   });
 
   it("answers null for a joint the skeleton lacks", () => {
-    const rig = idleRig(pose, effect(), 1);
+    const rig = jointRig(pose, effect(), 1);
 
     expect(rig.joints?.("Weapon")).toBeNull();
   });

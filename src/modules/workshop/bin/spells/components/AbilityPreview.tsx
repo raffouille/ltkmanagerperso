@@ -24,11 +24,10 @@ export default function AbilityPreview({
   source: AbilitySource;
   recipe: AbilityRecipe;
 }) {
-  const read = useSkinGraphSource(source.document, source.asset, source.entry);
+  const read = useSkinGraphSource(source.document, source.entry);
   if (read.skin.isError) return <Notice text={m.workshop_bin_preview_failed_empty()} />;
   return (
     <>
-      {read.opener}
       {read.skin.data === undefined && <Notice text={m.workshop_spells_loading_label()} />}
       {read.skin.data !== undefined && (
         <AbilityRead

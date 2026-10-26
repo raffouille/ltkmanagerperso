@@ -1281,9 +1281,10 @@ A section names one widget or none. `rows` is the elements of the containers the
 each a field row that opens in place, which is what a list takes. `override-rows` is the same over
 a list one level down, which is how the skin reaches the mesh's material overrides. It draws them
 as a table of submesh and material, the material a chip reading its name, and each row folds open
-to the override's other fields, its textures among them. `icons`, `mesh` and
-`effect-table` are the skin's own, and `emitters` the particle system's, each reading the fields
-of one class. `fields` draws the sub-fields a section names under the row it
+to the override's other fields, its textures among them. `icons`, `mesh`, `effect-table` and
+`condition-rows` are the skin's own, and `emitters` the particle system's, each reading the fields
+of one class. `condition-rows` reads down to each condition's drivers, and a condition's row
+reads its effects and its submesh lists when the row is unfolded. `fields` draws the sub-fields a section names under the row it
 placed, which is what a one-field embed such as `skinAnimationProperties` takes. `tree` is the
 tree rooted at the section's own fields, which is what a nested structure takes. A section that
 names no widget draws each of its fields in the cell that row would draw.

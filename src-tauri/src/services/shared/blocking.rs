@@ -3,6 +3,8 @@
 use ltk_manager_core::github::GitHubError;
 use ltk_manager_runtime::integrations::IntegrationError;
 
+use crate::data_location::DataMoveError;
+
 use crate::error::{AppError, AppErrorResponse, AppResult, GitHubFeed, IpcResult};
 
 /// Run `work` on a blocking thread, with a panic inside it reported through `interrupted`.
@@ -64,5 +66,15 @@ pub(crate) async fn integration<T: Send + 'static>(
     blocking(work, |detail| IntegrationError::Operation { detail })
         .await
         .map_err(|error| AppErrorResponse::Integration { error })
+        .into()
+}
+
+/// Run a step of a data directory move on a blocking thread, as an IPC answer.
+pub(crate) async fn data_move<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, DataMoveError> + Send + 'static,
+) -> IpcResult<T> {
+    blocking(work, |detail| DataMoveError::Io { detail })
+        .await
+        .map_err(|error| AppErrorResponse::DataMove { error })
         .into()
 }

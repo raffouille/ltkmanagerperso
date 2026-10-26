@@ -64,7 +64,7 @@ function ReadRecipe({
   onReady: (recipe: AbilityRecipe) => void;
 }) {
   const read = useQuery(spellQueries.preview(document, selected.entry));
-  const skin = useSkinGraphSource(source.document, source.asset, source.entry);
+  const skin = useSkinGraphSource(source.document, source.entry);
   const graph = useQuery(skinQueries.graph(skin.source.document, skin.source.graph));
   const animation = spellAnimation(read.data?.animationName ?? null, graph.data?.clips ?? []);
   const skeleton = useQuery(viewportQueries.skeleton(skin.skin.data?.skeleton?.asset ?? null));
@@ -152,7 +152,6 @@ function ReadRecipe({
   }, [recipe, onReady]);
   return (
     <>
-      {skin.opener}
       <Notice
         text={
           read.isError || skin.skin.isError || graph.isError || skeleton.isError || clipRead.isError

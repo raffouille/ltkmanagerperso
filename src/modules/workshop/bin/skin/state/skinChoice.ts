@@ -35,6 +35,12 @@ export interface SkinChoice {
   /** The idle effects are drawn. */
   readonly effects: boolean;
   readonly setEffects: (effects: boolean) => void;
+  /**
+   * The persistent conditions the preview applies, by index in `PersistentEffectConditions`,
+   * which writes nothing. None is applied at first, since the preview evaluates no condition.
+   */
+  readonly conditions: ReadonlySet<number>;
+  readonly toggleCondition: (index: number) => void;
   /** The submesh a reader points at, from the inspector or the viewport, and null for none. */
   readonly submesh: string | null;
   readonly setSubmesh: (submesh: string | null) => void;
@@ -102,6 +108,14 @@ export function useSkinChoice(): SkinChoice {
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(FIRST_SPEED);
   const [effects, setEffects] = useState(true);
+  const [conditions, setConditions] = useState<ReadonlySet<number>>(() => new Set());
+  const toggleCondition = useCallback((index: number) => {
+    setConditions((held) => {
+      const next = new Set(held);
+      if (!next.delete(index)) next.add(index);
+      return next;
+    });
+  }, []);
   const [submesh, setSubmesh] = useState<string | null>(null);
   const [picks, setPicks] = useState(0);
   const pickSubmesh = useCallback((next: string | null) => {
@@ -165,6 +179,8 @@ export function useSkinChoice(): SkinChoice {
       setSpeed,
       effects,
       setEffects,
+      conditions,
+      toggleCondition,
       submesh,
       setSubmesh,
       picks,
@@ -202,6 +218,8 @@ export function useSkinChoice(): SkinChoice {
       playing,
       speed,
       effects,
+      conditions,
+      toggleCondition,
       submesh,
       picks,
       pickSubmesh,

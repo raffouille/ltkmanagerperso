@@ -17,4 +17,5 @@ export const settingsKeys = {
   leaguePathValid: (path: string) => [...settingsKeys.all, "leaguePathValid", path] as const,
   thirdPartyLicenses: () => [...settingsKeys.all, "thirdPartyLicenses"] as const,
   telemetryIdentity: () => [...settingsKeys.all, "telemetryIdentity"] as const,
+  dataUsage: () => [...settingsKeys.all, "dataUsage"] as const,
 };

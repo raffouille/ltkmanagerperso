@@ -7,10 +7,12 @@ import { errorSummary, m } from "@/i18n";
 import type { AssetRef, BinRow, SkinModel } from "@/lib/tauri";
 import { usePreviewShaders, useSetPreviewDisplay } from "@/stores";
 
+import { assetKey } from "../../../preview/utils/assetRef";
 import { AlsoCheck, type ViewContext } from "../../classes/components/ClassCells";
 import { Sections } from "../../classes/components/ClassSections";
 import { useLayoutRead } from "../../classes/hooks/useLayoutRead";
 import { materialLayout, placeRows } from "../../classes/utils/classLayouts";
+import { declaringQueries } from "../../documents/api/declaringQueries";
 import { useBinDocument } from "../../documents/hooks/useBinDocument";
 import { useBinReadState } from "../../documents/hooks/useBinRead";
 import { Notice } from "../../shared/preview/Notice";
@@ -28,8 +30,6 @@ export interface SkinMaterial {
   readonly hash: string;
   /** The material's path, or its hash where no table names it. */
   readonly name: string;
-  /** The linked file declaring the material, and null where the skin's own file does. */
-  readonly source: AssetRef | null;
 }
 
 /** Every material `skin` draws with and the file declares, the body's first. */
@@ -37,11 +37,7 @@ export function skinMaterials(skin: SkinModel): SkinMaterial[] {
   const seen = new Map<string, SkinMaterial>();
   for (const material of [skin.material, ...skin.overrides.map((each) => each.material)]) {
     if (material === null || material.missing || seen.has(material.hash)) continue;
-    seen.set(material.hash, {
-      hash: material.hash,
-      name: material.name ?? material.hash,
-      source: material.source ?? null,
-    });
+    seen.set(material.hash, { hash: material.hash, name: material.name ?? material.hash });
   }
   return [...seen.values()];
 }
@@ -109,12 +105,7 @@ export function MaterialPane({ view, entry }: MaterialPaneProps) {
         />
         <ShadersHint />
       </div>
-      <MaterialSections
-        key={current}
-        view={view}
-        entry={current}
-        source={materials.find((each) => each.hash === current)?.source ?? null}
-      />
+      <MaterialSections key={current} view={view} entry={current} />
     </div>
   );
 }
@@ -122,13 +113,20 @@ export function MaterialPane({ view, entry }: MaterialPaneProps) {
 interface MaterialSectionsProps {
   view: ViewContext;
   entry: string;
-  /** The linked file declaring the material, and null where the view's own document does. */
-  source: AssetRef | null;
 }
 
-/** The sections of the material `entry`, read out of the document that declares it. */
-function MaterialSections({ view, entry, source }: MaterialSectionsProps) {
-  if (source === null) return <MaterialRows view={view} entry={entry} />;
+/**
+ * The sections of the material `entry`, read out of the bin that declares it, which takes
+ * the edits.
+ */
+function MaterialSections({ view, entry }: MaterialSectionsProps) {
+  const declaring = useQuery(declaringQueries.object(view.document, entry));
+
+  if (declaring.isPending) return <Notice text={m.workshop_bin_material_preview_loading_label()} />;
+  const source = declaring.data ?? null;
+  if (source === null || assetKey(source) === assetKey(view.asset)) {
+    return <MaterialRows view={view} entry={entry} />;
+  }
   return <LinkedMaterialRows view={view} entry={entry} source={source} />;
 }
 

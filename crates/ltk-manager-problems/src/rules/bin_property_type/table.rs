@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use ltk_hash::{BinHash, Hash as _};
+use ltk_hash::{BinHash, Hash as _, HashWidth};
 use ltk_meta::property::Kind;
 use serde::Deserialize;
 
@@ -26,6 +26,12 @@ const TABLE_16_17: &str = include_str!("../../tables/binfile_migration_16.17.808
 
 /// The build `TABLE_16_17` is a claim about, which its filename also carries.
 const BUILD_16_17: GameBuild = GameBuild::new(16, 17, 8_087_655);
+
+/// The table of the 8-byte material name: `StaticMaterialDef.name` stored as an XXH3 `Hash`.
+const TABLE_16_21: &str = include_str!("../../tables/binfile_migration_16.21.8298620.jsonl");
+
+/// The build `TABLE_16_21` is a claim about, which is the live 16.21 build that stores the hash.
+const BUILD_16_21: GameBuild = GameBuild::new(16, 21, 8_298_620);
 
 /// How a value crosses from the old type to the new one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -76,6 +82,18 @@ pub enum Conversion {
     /// The keys are the half that can fail, since only a key a table names back
     /// to its path crosses to `File`.
     HashKeyValue,
+    /// Each `String` becomes `XXH3(lowercase)` under an 8-byte `Hash`.
+    ///
+    /// The string is in the file, so the fix is one hash and one width. The
+    /// `Hash` tag stays, and the game tells the two widths apart by the sizes
+    /// the file declares around them.
+    HashXxh3,
+    /// A 4-byte `Hash` becomes the 8-byte `Hash` of the same path.
+    ///
+    /// A 4-byte `Hash` is `FNV1a32` of a path and there is no arithmetic from
+    /// that to `XXH3` of the same path, so the manager has to name the hash
+    /// first. Where no table names it there is no fix.
+    RehashXxh3,
     /// Nothing this build knows turns the value into the type it should be.
     Unknown,
 }
@@ -94,6 +112,15 @@ impl Conversion {
         match (from.kind, to.kind) {
             (Kind::String, Kind::WadChunkLink) => Self::HashValue,
             (Kind::Hash, Kind::WadChunkLink) => Self::Rehash,
+            /* An 8-byte `Hash` is XXH3 of its path, so only a row naming the
+            width knows the function. A `Hash` of the same width is the type
+            it should be already. */
+            (Kind::String, Kind::Hash) if to.width == Some(HashWidth::W8) => Self::HashXxh3,
+            (Kind::Hash, Kind::Hash)
+                if from.width == Some(HashWidth::W4) && to.width == Some(HashWidth::W8) =>
+            {
+                Self::RehashXxh3
+            }
             (Kind::None, Kind::Struct) => Self::NullPointer,
             /* Three pairs are one encoding under two tags. `Embed` is a
             `Pointer`'s class hash and body, `List2` is a `List`'s vector, and a
@@ -216,10 +243,13 @@ pub struct Migration {
 }
 
 /// The migrations of one game build, keyed the way a bin addresses them.
+///
+/// One property holds more than one row where more than one old type reaches
+/// the new one, each row with its own `from`.
 #[derive(Debug)]
 pub struct MigrationTable {
     build: GameBuild,
-    rows: HashMap<(BinHash, BinHash), Migration>,
+    rows: HashMap<(BinHash, BinHash), Vec<Migration>>,
 }
 
 impl MigrationTable {
@@ -253,13 +283,17 @@ impl MigrationTable {
             };
 
             let key = (migration.class, migration.field);
-            if let Some(shadowed) = rows.insert(key, migration) {
+            let held: &mut Vec<Migration> = rows.entry(key).or_default();
+            if let Some(shadowed) = held.iter().find(|row| row.from == migration.from) {
                 tracing::warn!(
-                    "Migration table {build}, line {number}: a second row for {:#010x}:{:#010x}, dropping {shadowed:?}",
+                    "Migration table {build}, line {number}: a second row for {:#010x}:{:#010x} from {}, dropping {shadowed:?}",
                     key.0,
-                    key.1
+                    key.1,
+                    migration.from.label()
                 );
+                continue;
             }
+            held.push(migration);
         }
         Self { build, rows }
     }
@@ -273,7 +307,7 @@ impl MigrationTable {
     /// How many rows the table holds.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.rows.len()
+        self.rows.values().map(Vec::len).sum()
     }
 
     #[must_use]
@@ -281,10 +315,23 @@ impl MigrationTable {
         self.rows.is_empty()
     }
 
-    /// The migration of one property, if the table names it.
+    /// The first migration of one property, if the table names it.
     #[must_use]
     pub fn migration(&self, class: BinHash, field: BinHash) -> Option<&Migration> {
-        self.rows.get(&(class, field))
+        self.migrations(class, field).first()
+    }
+
+    /// Every migration of one property, one for each old type, and empty if the
+    /// table does not name it.
+    #[must_use]
+    pub fn migrations(&self, class: BinHash, field: BinHash) -> &[Migration] {
+        self.rows.get(&(class, field)).map_or(&[], Vec::as_slice)
+    }
+
+    /// Every row of the table, in no order.
+    #[cfg(test)]
+    fn rows(&self) -> impl Iterator<Item = &Migration> {
+        self.rows.values().flatten()
     }
 }
 
@@ -324,10 +371,13 @@ struct RowType {
     value: Option<String>,
     class: Option<String>,
     size: Option<u32>,
+    /// The byte width of a `Hash`, 4 or 8.
+    width: Option<usize>,
 }
 
 impl RowType {
-    /// The type this names, or `None` where the mapping holds no such name.
+    /// The type this names, or `None` where the mapping holds no such name or
+    /// the width is not one a `Hash` is stored at.
     fn spec(&self) -> Option<TypeSpec> {
         let key = match self.key.as_deref() {
             Some(written) => Some(kinds::kind(written)?),
@@ -341,12 +391,17 @@ impl RowType {
             Some(written) => Some(token(written)?.0),
             None => None,
         };
+        let width = match self.width {
+            Some(bytes) => Some(HashWidth::from_bytes(bytes)?),
+            None => None,
+        };
         Some(TypeSpec {
             kind: kinds::kind(&self.kind)?,
             key,
             value,
             class,
             size: self.size,
+            width,
         })
     }
 }
@@ -364,6 +419,8 @@ enum RowConversion {
     None,
     Widen,
     EmptyOption,
+    HashXxh3,
+    RehashXxh3,
 }
 
 impl From<RowConversion> for Conversion {
@@ -375,6 +432,8 @@ impl From<RowConversion> for Conversion {
             RowConversion::None => Self::None,
             RowConversion::Widen => Self::Widen,
             RowConversion::EmptyOption => Self::EmptyOption,
+            RowConversion::HashXxh3 => Self::HashXxh3,
+            RowConversion::RehashXxh3 => Self::RehashXxh3,
         }
     }
 }
@@ -395,7 +454,10 @@ fn token(written: &str) -> Option<(BinHash, Option<String>)> {
 
 /// Built at first use, because a run that names no table pays nothing for one.
 static TABLES: LazyLock<Vec<MigrationTable>> = LazyLock::new(|| {
-    let mut tables = vec![MigrationTable::parse(BUILD_16_17, TABLE_16_17)];
+    let mut tables = vec![
+        MigrationTable::parse(BUILD_16_17, TABLE_16_17),
+        MigrationTable::parse(BUILD_16_21, TABLE_16_21),
+    ];
     tables.sort_by_key(MigrationTable::build);
     tables
 });
@@ -463,18 +525,88 @@ mod tests {
     }
 
     #[test]
-    fn the_manager_ships_the_one_table_the_deadline_names() {
-        assert_eq!(tables().len(), 1);
+    fn the_manager_ships_the_tables_in_build_order() {
+        assert_eq!(tables().len(), 2);
         assert_eq!(shipped().build(), GameBuild::new(16, 17, 8_087_655));
+        assert_eq!(tables()[1].build(), GameBuild::new(16, 21, 8_298_620));
         assert!(tables().windows(2).all(|w| w[0].build() <= w[1].build()));
+    }
+
+    /// The 16.21 table names one property twice, once for each old type, and a
+    /// value of either width finds its own row.
+    #[test]
+    fn the_material_name_holds_a_row_for_each_old_type() {
+        let table = &tables()[1];
+        let class = BinHash::hash_str("StaticMaterialDef");
+        let field = BinHash::hash_str("name");
+        let rows = table.migrations(class, field);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(table.len(), 2);
+
+        let conversions: Vec<Conversion> = rows.iter().map(|row| row.conversion).collect();
+        assert!(conversions.contains(&Conversion::HashXxh3));
+        assert!(conversions.contains(&Conversion::RehashXxh3));
+        assert!(rows.iter().all(|row| row.to.kind == Kind::Hash));
+        assert!(rows.iter().all(|row| row.to.width == Some(HashWidth::W8)));
+        assert_eq!(
+            table.migration(class, field).map(|row| row.conversion),
+            conversions.first().copied()
+        );
+    }
+
+    #[test]
+    fn a_second_row_with_the_same_from_is_dropped() {
+        let jsonl = concat!(
+            r#"{"class": "A", "field": "b", "from": {"type": "String"}, "to": {"type": "Hash", "width": 8}, "conversion": "hash_xxh3"}"#,
+            "\n",
+            r#"{"class": "A", "field": "b", "from": {"type": "String"}, "to": {"type": "File"}, "conversion": "hash_value"}"#,
+            "\n",
+            r#"{"class": "A", "field": "b", "from": {"type": "Hash", "width": 4}, "to": {"type": "Hash", "width": 8}, "conversion": "rehash_xxh3"}"#,
+        );
+        let table = MigrationTable::parse(GameBuild::new(1, 0, 1), jsonl);
+        let rows = table.migrations(BinHash::hash_str("A"), BinHash::hash_str("b"));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].conversion, Conversion::HashXxh3);
+        assert_eq!(rows[1].conversion, Conversion::RehashXxh3);
+    }
+
+    #[test]
+    fn a_width_no_hash_is_stored_at_skips_the_row() {
+        let jsonl = r#"{"class": "A", "field": "b", "from": {"type": "String"}, "to": {"type": "Hash", "width": 6}, "conversion": "hash_xxh3"}"#;
+        let table = MigrationTable::parse(GameBuild::new(1, 0, 1), jsonl);
+        assert!(table.is_empty());
+    }
+
+    #[test]
+    fn a_string_crosses_to_an_eight_byte_hash_and_to_nothing_narrower() {
+        let string = TypeSpec::bare(Kind::String);
+        let wide = TypeSpec {
+            width: Some(HashWidth::W8),
+            ..TypeSpec::bare(Kind::Hash)
+        };
+        let narrow = TypeSpec {
+            width: Some(HashWidth::W4),
+            ..TypeSpec::bare(Kind::Hash)
+        };
+        assert_eq!(Conversion::between(&string, &wide), Conversion::HashXxh3);
+        assert_eq!(Conversion::between(&string, &narrow), Conversion::Unknown);
+        assert_eq!(
+            Conversion::between(&string, &TypeSpec::bare(Kind::Hash)),
+            Conversion::Unknown
+        );
+        assert_eq!(Conversion::between(&narrow, &wide), Conversion::RehashXxh3);
+        assert_eq!(Conversion::between(&wide, &narrow), Conversion::Unknown);
+        assert_eq!(
+            Conversion::between(&TypeSpec::bare(Kind::Hash), &wide),
+            Conversion::Unknown
+        );
     }
 
     #[test]
     fn the_four_conversions_come_out_at_the_counts_the_table_ships() {
         let count = |wanted| {
             shipped()
-                .rows
-                .values()
+                .rows()
                 .filter(|row| row.conversion == wanted)
                 .count()
         };
@@ -547,7 +679,7 @@ mod tests {
     /// rule can name today.
     #[test]
     fn the_table_names_the_classes_and_fields_the_file_wrote_out() {
-        let rows = shipped().rows.values();
+        let rows = shipped().rows();
         let (classes, fields) = rows.fold((0, 0), |(classes, fields), row| {
             (
                 classes + usize::from(row.class_name.is_some()),

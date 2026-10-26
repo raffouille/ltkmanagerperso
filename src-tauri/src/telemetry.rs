@@ -38,7 +38,7 @@ const API_KEY: Option<&str> = option_env!("LTK_POSTHOG_API_KEY");
 /// in a debug build.
 const REPORTS: bool = !cfg!(debug_assertions);
 
-/// Where the spool sits, beside the logs and the incidents.
+/// Where the spool sits, beside the logs.
 fn spool_dir(app_handle: &AppHandle) -> PathBuf {
     match get_app_data_dir(app_handle) {
         Some(dir) => dir.join("telemetry"),

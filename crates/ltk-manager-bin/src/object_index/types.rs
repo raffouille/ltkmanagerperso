@@ -3,8 +3,6 @@
 //! Every shape a Tauri command hands the frontend, and the statistics a build
 //! measured. `ts-rs` exports each one under the `ts` feature.
 
-use std::time::Duration;
-
 use ltk_wad::WadHash;
 use serde::Serialize;
 
@@ -256,26 +254,4 @@ pub struct ReferenceResult {
     pub superseded: bool,
     /// The walk was cancelled before it read every bin. The groups are what it found.
     pub cancelled: bool,
-}
-
-/// What a build measured.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct ObjectIndexStats {
-    /// Archives holding at least one chunk the build read or sniffed.
-    pub archives: u32,
-    /// Bin chunks the build read, named or sniffed, whether or not they read.
-    pub files: u32,
-    /// Chunks no table names, each decoded far enough to read its magic.
-    pub sniffed: u32,
-    /// Of the sniffed, the ones whose magic was a bin's, and so were read.
-    pub unnamed_bins: u32,
-    /// Declarations, one per object per declaring file.
-    pub rows: u32,
-    /// Chunks that would not read, which never fail the build.
-    pub skipped: u32,
-    /// Decompressed bytes read.
-    pub bytes: u64,
-    pub elapsed: Duration,
-    /// Threads the build ran on.
-    pub workers: u32,
 }

@@ -82,6 +82,8 @@ ltk_meta = { version = "0.9.1", features = ["serde"] }
 
 ltk_fantome = "0.15.5"
 ltk_game_data = "0.9.3"
+# `rayon` mounts the archives of a chunk index build in parallel.
+ltk_game_index = { version = "0.2.0", features = ["rayon"] }
 ltk_mod_project = { version = "0.16.7", features = ["modpkg", "fantome"] }
 ltk_hashtable = "0.2.2"
 ltk_modpkg = "0.12.14"

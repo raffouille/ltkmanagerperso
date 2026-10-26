@@ -23,6 +23,7 @@ fs-err = { workspace = true }
 image = { workspace = true }
 ltk_fantome = { workspace = true }
 ltk_file = { workspace = true }
+ltk_game_index = { workspace = true, features = ["objects"] }
 ltk_hash = { workspace = true }
 ltk_hashdb = { workspace = true }
 ltk_hashtable = { workspace = true }
@@ -33,6 +34,7 @@ ltk_wad = { workspace = true }
 parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 walkdir = { workspace = true }

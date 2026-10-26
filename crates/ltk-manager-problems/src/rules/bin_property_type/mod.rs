@@ -35,6 +35,14 @@
 //! rehashed under the new function. A hash no table resolves is the one
 //! finding this rule cannot repair.
 //!
+//! Patch 16.21 stores a material name, `StaticMaterialDef.name`, as an 8-byte
+//! `Hash`, which is XXH3 of the lowercased path. The tag is the one a 4-byte
+//! `Hash` carries, so a row names the width beside the type, and the two old
+//! types each take a road of their own: a `String` is hashed, and a 4-byte
+//! `Hash` goes through the path the way a `File` does. The schema names no
+//! width, so a `Hash` the schema is content with is still read against the
+//! tables.
+//!
 //! Several roads move no value at all. An integer crosses to any type that
 //! holds every number it could hold, so `U8` reaches `U64` and nothing reaches
 //! a type that would drop a bit. An option holding nothing is re-declared under
@@ -67,7 +75,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::sync::Arc;
 
-use ltk_hash::{BinHash, Hash as _, WadHash};
+use ltk_hash::{BinHash, Hash as _, HashAlgorithm, HashWidth, Hasher, WadHash};
 use ltk_meta::property::{Kind, ValueMut, values};
 use ltk_meta::walk::{Node, PropertyRefMut, Visit, Visitor, VisitorMut};
 use ltk_meta::{BinDelta, BinKind, BinObject, BinStream, PropertyValueEnum};
@@ -90,7 +98,14 @@ use table::{Conversion, Migration, MigrationTable};
 /// The id every row of this rule carries.
 pub const ID: RuleId = RuleId("bin/property-type");
 
-/// Repairs the properties Riot changed to `File`.
+/// The function behind an 8-byte `Hash`: XXH3 of the lowercased path, stored in 8 bytes.
+const WIDE_XXH3: Hasher = Hasher {
+    width: HashWidth::W8,
+    algorithm: HashAlgorithm::Xxh3,
+    lowercased: true,
+};
+
+/// Repairs the properties Riot changed to `File`, and to the 8-byte `Hash`.
 #[derive(Debug, Default)]
 pub struct BinPropertyType;
 
@@ -118,20 +133,24 @@ impl Rule for BinPropertyType {
         &META
     }
 
-    /// The oldest table this project's game has not reached, in a modder's words.
+    /// The oldest table, in a modder's words, while this project's game has reached none.
     ///
     /// A table is a claim about one build. Until the game is on that build the
     /// change has not happened, so the findings are about work that is coming
     /// rather than a mod that is broken - which is what [`ProblemSeverity::Warning`]
     /// already says of each of them, and what the panel mutes them for.
     ///
+    /// Once the game has reached any table the rule is active, because the
+    /// findings of that table are live. A finding of a later table carries no
+    /// fix until the game reaches it.
+    ///
     /// The sentence names the patches rather than the builds both sides compare
     /// on, because a patch is the number a modder reads in Riot's notes.
     fn dormant(&self, project: &ProjectFiles) -> Option<Dormancy> {
         let installed = project.build()?;
         let patch = table::tables()
-            .iter()
-            .find(|table| table.build() > installed)?
+            .first()
+            .filter(|table| table.build() > installed)?
             .build()
             .patch();
 
@@ -173,6 +192,7 @@ impl Rule for BinPropertyType {
             tables,
             schema: &judge.schema,
             judged: judge.judged(),
+            installed: judge.build,
             names: &names,
         };
         let mut applied = Applied::default();
@@ -377,6 +397,7 @@ impl BinVisitor for TypeCheck<'_> {
                     tables: self.tables,
                     schema: &self.judge.schema,
                     judged: self.judge.judged(),
+                    installed: self.build,
                     names: self.names,
                 }),
                 build: self.build,
@@ -403,6 +424,13 @@ impl PropertyRead for Reporting<'_> {
         let visit = self.check.enter_property(field, value, node)?;
         let names = self.check.lens.names;
         for (entry, hit) in self.check.found.drain(..) {
+            /* A repair the installed game does not read yet breaks the mod on
+            the build the user plays, so the finding carries none until then. */
+            let fix = if ahead(self.build, hit.table_build) {
+                None
+            } else {
+                preview(&hit.migration, &hit.value, names)
+            };
             sink.problem(
                 severity(self.build, hit.table_build),
                 Some(NodeAddress {
@@ -419,7 +447,7 @@ impl PropertyRead for Reporting<'_> {
                         self.build,
                         hit.table_build,
                     ),
-                    fix: preview(&hit.migration, &hit.value, names),
+                    fix,
                 },
             );
         }
@@ -438,6 +466,9 @@ struct Lens<'a> {
     schema: &'a MetaSchema,
     /// The build the database judges at. Absent without an install to judge against.
     judged: Option<GameBuild>,
+    /// The build the game is installed at, where it could be read. What a table's
+    /// claim is measured against.
+    installed: Option<GameBuild>,
     names: &'a BinNames,
 }
 
@@ -493,12 +524,19 @@ impl Lens<'_> {
             && let Some(expected) = self.schema.expected(class, field, build)
             && let Some(shape) = expected.shape
         {
-            answered = Some(build);
             if !TypeSpec::from(shape).matches(value)? {
-                return Ok(Some(Objection {
-                    migration: Cow::Owned(derived(class, field, expected, value)?),
-                    build,
-                }));
+                /* The schema names a type and not a recipe, so a row that
+                reaches its type from the value's own carries the repair. */
+                let migration = match self.recipe(class, field, shape.kind, value)? {
+                    Some(row) => Cow::Borrowed(row),
+                    None => Cow::Owned(derived(class, field, expected, value)?),
+                };
+                return Ok(Some(Objection { migration, build }));
+            }
+            /* The schema names no width, so a `Hash` it is content with is
+            still a question for the tables. */
+            if shape.kind != Kind::Hash {
+                answered = Some(build);
             }
         }
 
@@ -508,14 +546,35 @@ impl Lens<'_> {
             if answered.is_some_and(|installed| table.build() <= installed) {
                 continue;
             }
-            let Some(migration) = self.migration(table, class, field) else {
-                continue;
-            };
-            if migration.from.matches(value)? {
-                return Ok(Some(Objection {
-                    migration: Cow::Borrowed(migration),
-                    build: table.build(),
-                }));
+            for migration in self.migrations(table, class, field) {
+                if migration.from.matches(value)? {
+                    return Ok(Some(Objection {
+                        migration: Cow::Borrowed(migration),
+                        build: table.build(),
+                    }));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// The row of any table that moves `value` to a `to`, the kind the schema names.
+    ///
+    /// # Errors
+    ///
+    /// Over a view, a header that does not decode.
+    fn recipe<'a>(
+        &self,
+        class: BinHash,
+        field: BinHash,
+        to: Kind,
+        value: impl Declared<'a>,
+    ) -> Result<Option<&'static Migration>, ltk_meta::Error> {
+        for table in self.tables {
+            for migration in self.migrations(table, class, field) {
+                if migration.to.kind == to && migration.from.matches(value)? {
+                    return Ok(Some(migration));
+                }
             }
         }
         Ok(None)
@@ -536,18 +595,31 @@ impl Lens<'_> {
             .find_map(|table| self.migration(table, class, field)?.field_name.as_deref())
     }
 
-    /// The row of `table` naming `field` on `class` or a base of it, the classes read at the
-    /// table's build.
+    /// The first row of `table` naming `field` on `class` or a base of it, the classes read at
+    /// the table's build.
     fn migration(
         &self,
         table: &'static MigrationTable,
         class: BinHash,
         field: BinHash,
     ) -> Option<&'static Migration> {
+        self.migrations(table, class, field).first()
+    }
+
+    /// Every row of `table` naming `field` on `class` or a base of it, the classes read at the
+    /// table's build. Empty if no class of the hierarchy holds a row.
+    fn migrations(
+        &self,
+        table: &'static MigrationTable,
+        class: BinHash,
+        field: BinHash,
+    ) -> &'static [Migration] {
         self.schema
             .find_in_hierarchy(class, Some(table.build()), |owner| {
-                table.migration(owner, field)
+                let rows = table.migrations(owner, field);
+                (!rows.is_empty()).then_some(rows)
             })
+            .unwrap_or(&[])
     }
 }
 
@@ -714,6 +786,9 @@ impl VisitorMut for Repair<'_, '_, '_> {
         let Some(objection) = self.lens.objection(class, field, property.value())? else {
             return Ok(Visit::Continue);
         };
+        if ahead(self.lens.installed, objection.build) {
+            return Ok(Visit::Continue);
+        }
 
         /* Nothing is named, since only the hash form is compared. */
         let address = Address::of(property.trail(), field, class, &());
@@ -746,11 +821,15 @@ fn keep_names(
     kept: &mut PreservedNames<'_>,
 ) -> bool {
     match migration.conversion {
-        Conversion::HashValue | Conversion::RetagHashValue => keeps(strings(value), kept),
+        Conversion::HashValue | Conversion::RetagHashValue | Conversion::HashXxh3 => {
+            keeps(strings(value), kept)
+        }
         /* The paths a rehash writes from came out of a table, and keeping them
         under the new hash is what lets a reader name the `File` it left. */
-        Conversion::Rehash | Conversion::HashKey => resolved_paths(value, migration, names)
-            .is_some_and(|paths| keeps(paths.iter().map(String::as_str), kept)),
+        Conversion::Rehash | Conversion::HashKey | Conversion::RehashXxh3 => {
+            resolved_paths(value, migration, names)
+                .is_some_and(|paths| keeps(paths.iter().map(String::as_str), kept))
+        }
         /* Both halves of the map, since a key or a value losing its path leaves
         the mod holding a hash it can no longer name. */
         Conversion::HashKeyValue => {
@@ -777,28 +856,53 @@ fn keeps<'p>(paths: impl IntoIterator<Item = &'p str>, kept: &mut PreservedNames
 /// Rewrite one property under its new type. Reports whether it changed.
 ///
 /// A `Hash` is FNV1a32 of a path and a `File` is XXH64 of the same path, and
-/// there is no arithmetic between them - only the path crosses. So the two
+/// there is no arithmetic between them - only the path crosses. So the
 /// rehashing conversions look the path up in `names` first, and a hash no
 /// table names leaves the property as it is.
 fn convert(value: &mut PropertyValueEnum, migration: &Migration, names: &BinNames) -> bool {
     match migration.conversion {
-        Conversion::HashValue => hash_value(value),
+        Conversion::HashValue => hash_value(value, FILE),
+        Conversion::HashXxh3 => hash_value(value, WIDE_HASH),
         Conversion::None => retag(value, migration),
-        Conversion::Rehash => rehash(value, names),
+        Conversion::Rehash => rehash(value, names, FILE),
+        Conversion::RehashXxh3 => rehash(value, names, WIDE_HASH),
         Conversion::HashKey => rehash_keys(value, names),
         Conversion::NullPointer => null_pointers(value),
         Conversion::Widen => widen(value, &migration.to),
         Conversion::EmptyOption => retag_option(value, migration.to.value),
-        Conversion::RetagHashValue => {
-            crossing(value, |held| hash_value(held) && retag(held, migration))
-        }
-        Conversion::HashKeyValue => {
-            crossing(value, |held| rehash_keys(held, names) && hash_value(held))
-        }
+        Conversion::RetagHashValue => crossing(value, |held| {
+            hash_value(held, FILE) && retag(held, migration)
+        }),
+        Conversion::HashKeyValue => crossing(value, |held| {
+            rehash_keys(held, names) && hash_value(held, FILE)
+        }),
         /* No road from what it holds to what it should be. */
         Conversion::Unknown => false,
     }
 }
+
+/// The hashed type a path crosses to: the kind it is written under, the value
+/// of one path, and how a preview draws that value.
+#[derive(Clone, Copy)]
+struct Road {
+    kind: Kind,
+    of: fn(&str) -> PropertyValueEnum,
+    render: fn(&str) -> String,
+}
+
+/// The `File` of a path, which is XXH64 of it lowercased.
+const FILE: Road = Road {
+    kind: Kind::WadChunkLink,
+    of: |path| link(path).into(),
+    render: |path| format!("0x{:016x}", WadHash::hash_str(path).0),
+};
+
+/// The 8-byte `Hash` of a path, which is XXH3 of it lowercased.
+const WIDE_HASH: Road = Road {
+    kind: Kind::Hash,
+    of: |path| wide_hash(path).into(),
+    render: |path| format!("0x{:016x}", WIDE_XXH3.hash_str(path).as_u64()),
+};
 
 /// Take a road of two steps, or leave the value as it was. Reports whether it
 /// changed.
@@ -819,9 +923,9 @@ fn crossing(
     true
 }
 
-/// Rewrite a `Hash` as the `File` of the path behind it. Reports whether it
-/// changed, which needs a table naming the hash.
-fn rehash(value: &mut PropertyValueEnum, names: &BinNames) -> bool {
+/// Rewrite a 4-byte `Hash` as the value `road` writes for the path behind it.
+/// Reports whether it changed, which needs a table naming the hash.
+fn rehash(value: &mut PropertyValueEnum, names: &BinNames, road: Road) -> bool {
     let PropertyValueEnum::Hash(hash) = value else {
         return false;
     };
@@ -832,7 +936,7 @@ fn rehash(value: &mut PropertyValueEnum, names: &BinNames) -> bool {
     let Some(path) = path else {
         return false;
     };
-    *value = link(&path).into();
+    *value = (road.of)(&path);
     true
 }
 
@@ -869,14 +973,15 @@ fn rehash_keys(value: &mut PropertyValueEnum, names: &BinNames) -> bool {
     true
 }
 
-/// Turn every `String` under this property into the `File` of the same path.
+/// Turn every `String` under this property into the value `road` writes for
+/// the same path.
 ///
 /// Takes the value out first and puts one back, because a container is an enum
 /// over its item type: converting is a construction and not a mutation, and the
 /// old value has to be owned to be consumed.
-fn hash_value(value: &mut PropertyValueEnum) -> bool {
+fn hash_value(value: &mut PropertyValueEnum, road: Road) -> bool {
     let taken = std::mem::replace(value, Kind::None.default_value());
-    match hashed(taken) {
+    match hashed(taken, road) {
         Ok(converted) => {
             *value = converted;
             true
@@ -889,13 +994,13 @@ fn hash_value(value: &mut PropertyValueEnum) -> bool {
 }
 
 /// The value under its new type, or the value back where it does not apply.
-fn hashed(value: PropertyValueEnum) -> Result<PropertyValueEnum, PropertyValueEnum> {
+fn hashed(value: PropertyValueEnum, road: Road) -> Result<PropertyValueEnum, PropertyValueEnum> {
     match value {
-        PropertyValueEnum::String(text) => Ok(link(&text.value).into()),
-        PropertyValueEnum::Container(items) => {
-            hashed_container(items).map(Into::into).map_err(Into::into)
-        }
-        PropertyValueEnum::UnorderedContainer(items) => match hashed_container(items.0) {
+        PropertyValueEnum::String(text) => Ok((road.of)(&text.value)),
+        PropertyValueEnum::Container(items) => hashed_container(items, road)
+            .map(Into::into)
+            .map_err(Into::into),
+        PropertyValueEnum::UnorderedContainer(items) => match hashed_container(items.0, road) {
             Ok(items) => Ok(values::UnorderedContainer(items).into()),
             Err(items) => Err(values::UnorderedContainer(items).into()),
         },
@@ -904,14 +1009,14 @@ fn hashed(value: PropertyValueEnum) -> Result<PropertyValueEnum, PropertyValueEn
             it declared. That goes back untouched, the way `hashed_container`
             hands its container back, rather than being dropped and counted as a
             repair - the value is read before the option is consumed for that. */
-            let linked = match option.value() {
+            let hashed = match option.value() {
                 None => Some(None),
                 Some(held) => held
                     .get::<values::String>()
-                    .map(|text| Some(link(&text.value))),
+                    .map(|text| Some((road.of)(&text.value))),
             };
-            match linked {
-                Some(linked) => Ok(values::Optional::from(linked).into()),
+            match hashed.and_then(|held| values::Optional::new(road.kind, held).ok()) {
+                Some(rebuilt) => Ok(rebuilt.into()),
                 None => Err(option.into()),
             }
         }
@@ -920,7 +1025,7 @@ fn hashed(value: PropertyValueEnum) -> Result<PropertyValueEnum, PropertyValueEn
             if map.value_kind() != Kind::String {
                 return Err(map.into());
             }
-            let Ok(mut rebuilt) = values::Map::empty(key_kind, Kind::WadChunkLink) else {
+            let Ok(mut rebuilt) = values::Map::empty(key_kind, road.kind) else {
                 return Err(map.into());
             };
             for (key, item) in map.into_entries() {
@@ -929,7 +1034,7 @@ fn hashed(value: PropertyValueEnum) -> Result<PropertyValueEnum, PropertyValueEn
                     unless the file disagrees with its own header. */
                     return Err(Kind::None.default_value());
                 };
-                if rebuilt.push(key, link(&text.value).into()).is_err() {
+                if rebuilt.push(key, (road.of)(&text.value)).is_err() {
                     return Err(Kind::None.default_value());
                 }
             }
@@ -939,18 +1044,21 @@ fn hashed(value: PropertyValueEnum) -> Result<PropertyValueEnum, PropertyValueEn
     }
 }
 
-/// Rebuild a container of `String` as a container of `File`.
-fn hashed_container(items: values::Container) -> Result<values::Container, values::Container> {
+/// Rebuild a container of `String` as a container of what `road` writes.
+fn hashed_container(
+    items: values::Container,
+    road: Road,
+) -> Result<values::Container, values::Container> {
     if items.item_kind() != Kind::String {
         return Err(items);
     }
-    let linked: Option<Vec<_>> = items
+    let hashed: Option<Vec<_>> = items
         .items()
         .iter()
-        .map(|item| Some(link(&item.get::<values::String>()?.value)))
+        .map(|item| Some((road.of)(&item.get::<values::String>()?.value)))
         .collect();
-    match linked {
-        Some(linked) => Ok(linked.into_iter().collect()),
+    match hashed.and_then(|hashed| values::Container::new(road.kind, hashed).ok()) {
+        Some(hashed) => Ok(hashed),
         /* The container disagrees with the item kind it declared. */
         None => Err(items),
     }
@@ -1272,6 +1380,11 @@ fn link(path: &str) -> values::WadChunkLink {
     values::WadChunkLink::new(WadHash::hash_str(path))
 }
 
+/// The 8-byte `Hash` of a path, which is XXH3 of it lowercased.
+fn wide_hash(path: &str) -> values::Hash {
+    values::Hash::new(WIDE_XXH3.hash_str(path))
+}
+
 /// A map key, as a subscript reads, in the form the file holds.
 fn subscript(key: &PropertyValueEnum) -> String {
     match key {
@@ -1298,6 +1411,14 @@ fn severity(installed: Option<GameBuild>, table: GameBuild) -> ProblemSeverity {
         install we could not read is not a claim either way. */
         _ => ProblemSeverity::Warning,
     }
+}
+
+/// Whether `table` claims a build the installed game has not reached.
+///
+/// An install that could not be read is not a claim either way, so nothing is
+/// ahead of it.
+fn ahead(installed: Option<GameBuild>, table: GameBuild) -> bool {
+    installed.is_some_and(|installed| installed < table)
 }
 
 /// The type the game reads here, against the one the file declares.
@@ -1340,6 +1461,12 @@ fn note(
                 unresolved(value, names)
             ));
         }
+        Conversion::RehashXxh3 if resolved_paths(value, migration, names).is_none() => {
+            parts.push(format!(
+                "Neither the Mimir hashtables nor the mod's own resolve the FNV1a Hash value {} back to its path, and only that path crosses to the 8-byte Hash, the 64-bit XXH3. Adding the path to the mod's hashtables makes this repairable.",
+                unresolved(value, names)
+            ));
+        }
         Conversion::Unknown => {
             parts.push(format!(
                 "The game reads this property as {} and drops a value of any other type. Nothing rewrites a {} into one, so the mod has to be rebuilt against the current game.",
@@ -1348,9 +1475,11 @@ fn note(
             ));
         }
         Conversion::Rehash
+        | Conversion::RehashXxh3
         | Conversion::HashKey
         | Conversion::HashKeyValue
         | Conversion::HashValue
+        | Conversion::HashXxh3
         | Conversion::RetagHashValue
         | Conversion::None
         | Conversion::NullPointer
@@ -1409,7 +1538,7 @@ fn resolved_paths(
     names: &BinNames,
 ) -> Option<Vec<String>> {
     match (migration.conversion, value) {
-        (Conversion::Rehash, PropertyValueEnum::Hash(hash)) => {
+        (Conversion::Rehash | Conversion::RehashXxh3, PropertyValueEnum::Hash(hash)) => {
             Some(vec![names.path_value(hash.value.try_as_bin_hash()?)?])
         }
         (Conversion::HashKey | Conversion::HashKeyValue, PropertyValueEnum::Map(map)) => map
@@ -1440,24 +1569,30 @@ fn preview(
         /* The keys are the half a `HashKeyValue` can fail on, so they are the
         half worth drawing. */
         Conversion::Rehash | Conversion::HashKey | Conversion::HashKeyValue => {
-            let paths = resolved_paths(value, migration, names)?;
-            Some(match paths.as_slice() {
-                [] => FixPreview::default(),
-                [path] => FixPreview::value(
-                    quoted(path),
-                    format!("0x{:016x}", WadHash::hash_str(path).0),
-                ),
-                [first, rest @ ..] => FixPreview::sample(quoted(first), Some(more(rest.len()))),
-            })
+            Some(path_preview(resolved_paths(value, migration, names)?, FILE))
         }
+        Conversion::RehashXxh3 => Some(path_preview(
+            resolved_paths(value, migration, names)?,
+            WIDE_HASH,
+        )),
         /* Nothing to draw beside the annotation: the type is the whole change. */
         Conversion::None
         | Conversion::NullPointer
         | Conversion::Widen
         | Conversion::EmptyOption => Some(FixPreview::default()),
-        Conversion::HashValue | Conversion::RetagHashValue => Some(value_preview(value)),
+        Conversion::HashValue | Conversion::RetagHashValue => Some(value_preview(value, FILE)),
+        Conversion::HashXxh3 => Some(value_preview(value, WIDE_HASH)),
         /* No repair, so nothing to preview. */
         Conversion::Unknown => None,
+    }
+}
+
+/// The paths a rehash writes from, drawn beside what `road` writes for the one shown.
+fn path_preview(paths: Vec<String>, road: Road) -> FixPreview {
+    match paths.as_slice() {
+        [] => FixPreview::default(),
+        [path] => FixPreview::value(quoted(path), (road.render)(path)),
+        [first, rest @ ..] => FixPreview::sample(quoted(first), Some(more(rest.len()))),
     }
 }
 
@@ -1467,12 +1602,9 @@ fn preview(
 /// nothing about what is in the file - which is the whole of what a reader
 /// opened the problem to see. So one path is drawn as the example and the rest
 /// becomes the note beside it.
-fn value_preview(value: &PropertyValueEnum) -> FixPreview {
+fn value_preview(value: &PropertyValueEnum, road: Road) -> FixPreview {
     if let PropertyValueEnum::String(text) = value {
-        return FixPreview::value(
-            quoted(&text.value),
-            format!("0x{:016x}", WadHash::hash_str(&text.value).0),
-        );
+        return FixPreview::value(quoted(&text.value), (road.render)(&text.value));
     }
 
     let held = strings(value);

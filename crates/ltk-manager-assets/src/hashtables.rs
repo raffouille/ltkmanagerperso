@@ -28,10 +28,12 @@ use ltk_manager_base::error::{AppError, DomainError, ErrorKind};
 use ltk_manager_base::events::{BackendEvent, EventSink, HashtableSyncProgress};
 use ltk_manager_base::utils::lazy_slot::LazySlot;
 
+mod name_sheets;
 mod object_names;
 
 pub use ltk_hashdb::{HashDb, LayeredHashDb, PathRef};
 pub use ltk_mimir_cache::Table;
+pub use name_sheets::MimirNames;
 pub use object_names::{CacheNames, ObjectNames};
 
 /// Download base for the published hashtable release assets.
@@ -583,6 +585,11 @@ impl HashtableCache {
             tracing::debug!("Hashtable `{table}` unavailable: {e}");
         }
         db
+    }
+
+    /// Every table of the cache, as the name source of the object index's sheets.
+    pub fn names(&self) -> MimirNames {
+        MimirNames::new(self.store.clone())
     }
 
     /// The same tables as [`wad_tables`](Self::wad_tables), as a resolver.

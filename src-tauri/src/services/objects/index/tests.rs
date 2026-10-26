@@ -6,8 +6,7 @@ use std::time::Instant;
 
 use ltk_hash::{BinHash, Hash as _};
 
-use ltk_manager_assets::game_index::GameIndex;
-use ltk_manager_assets::game_wads::GameArchives;
+use ltk_manager_assets::game_wads::{ChunkPaths, GameArchives};
 use ltk_manager_assets::hashtables::CacheNames;
 use ltk_manager_assets::hashtables::{HashtableCache, WadPathResolver};
 use ltk_manager_base::budget::{files_at_once, Budget};
@@ -36,16 +35,22 @@ fn measure_the_live_install() {
     };
     let archives = GameArchives::resolve(&config).expect("an install under the path");
     let wad = WadPathResolver::discover();
-    let game = GameIndex::build(&archives, wad.tables()).expect("the game index builds");
+    let chunks = archives.chunk_index(None).expect("the chunk index builds");
 
-    let index = ObjectIndex::build(&game, &archives, files_at_once(), &|| false)
-        .expect("the object index builds");
     let cache = HashtableCache::shared().expect("a synced hashtable cache");
-    let bin = cache.bin_tables();
-    let named = index.named(&CacheNames::new(&bin, &wad));
 
-    let stats = named.stats();
-    assert!(stats.rows > 0, "an install declares objects");
+    let index = ObjectIndex::build(
+        &chunks,
+        &ChunkPaths(wad.tables()),
+        &cache.names(),
+        files_at_once(),
+        &|| false,
+        None,
+    )
+    .expect("the object index builds");
+
+    let stats = index.stats();
+    assert!(stats.declarations > 0, "an install declares objects");
 }
 
 /// The walk a References query runs, over the install `LTK_LEAGUE_PATH` names, timed.
@@ -63,10 +68,17 @@ fn measure_the_reference_walk() {
     };
     let archives = GameArchives::resolve(&config).expect("an install under the path");
     let wad = WadPathResolver::discover();
-    let game = GameIndex::build(&archives, wad.tables()).expect("the game index builds");
-    let index = ObjectIndex::build(&game, &archives, files_at_once(), &|| false)
-        .expect("the object index builds");
+    let chunks = archives.chunk_index(None).expect("the chunk index builds");
     let cache = HashtableCache::shared().expect("a synced hashtable cache");
+    let index = ObjectIndex::build(
+        &chunks,
+        &ChunkPaths(wad.tables()),
+        &cache.names(),
+        files_at_once(),
+        &|| false,
+        None,
+    )
+    .expect("the object index builds");
     let bin = cache.bin_tables();
     let names = CacheNames::new(&bin, &wad);
     let build = GameBuild::installed(&config);
@@ -92,7 +104,7 @@ fn measure_the_reference_walk() {
         println!(
             "{:?}: {} bins, {} references in {} files, {} ms on {} workers",
             request.target,
-            index.stats().files,
+            index.stats().bins,
             result.total,
             result.groups.len(),
             started.elapsed().as_millis(),

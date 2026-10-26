@@ -7,7 +7,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::error::{AppError, AppResult, IpcResult};
 use crate::mods::ModLibraryState;
-use crate::services::objects::ObjectIndexState;
+use crate::services::objects::index::clear_indexes;
 use crate::state::SettingsState;
 
 /// Opens a file location in the system file explorer.
@@ -92,7 +92,7 @@ pub(crate) fn send_to_tray(window: &tauri::WebviewWindow) -> AppResult<()> {
 ///
 /// The frontend warms the object index again when the webview is shown.
 fn release_indexes(app: &AppHandle) {
-    app.state::<ObjectIndexState>().clear();
+    clear_indexes(app);
     app.state::<GameIndexState>().clear_all();
     app.state::<StringKeyIndexState>().clear();
     BinNames::invalidate_game_index();

@@ -18,8 +18,10 @@ import { MigrationPanel } from "@/modules/migration";
 import {
   AboutSection,
   AppearanceSection,
+  BackupSection,
   BuiltinModsSection,
   CacheSection,
+  DiskUsageSection,
   DEFAULT_SETTINGS_TAB,
   GeneralSection,
   HotkeySection,
@@ -105,6 +107,7 @@ export function Settings() {
                   </div>
                 )}
                 <GeneralSection migration={<MigrationPanel />} />
+                <BackupSection />
               </ReadingColumn>
             </Tabs.Panel>
 
@@ -140,6 +143,7 @@ export function Settings() {
 
             <Tabs.Panel value="cache">
               <ReadingColumn>
+                <DiskUsageSection />
                 <CacheSection />
               </ReadingColumn>
             </Tabs.Panel>

@@ -31,8 +31,11 @@ fn an_object_two_files_declare_has_a_row_per_file_in_archive_order() {
 fn declared_answers_every_declaration_in_archive_order_with_its_file() {
     let first: &[Chunk<'_>] = &[("data/a.bin", prop(&[("characters/shared", "Shared")]))];
     let second: &[Chunk<'_>] = &[("data/b.bin", prop(&[("characters/shared", "Shared")]))];
-    let (_tmp, index) = build(&[("B.wad.client", second), ("A.wad.client", first)], 2);
-    let index = index.named(&TestNames::over(&["characters/shared"], &["Shared"]));
+    let (_tmp, index) = build_named(
+        &[("B.wad.client", second), ("A.wad.client", first)],
+        2,
+        TestNames::over(&["characters/shared"], &["Shared"]),
+    );
 
     let declared = index
         .declared(BinHash::hash_str("characters/shared"))

@@ -3,6 +3,8 @@
     windows_subsystem = "windows"
 )]
 
+mod data_location;
+mod data_usage;
 mod deep_link;
 mod error;
 mod events;
@@ -15,7 +17,14 @@ mod mods;
 pub mod patcher;
 mod protocol;
 mod services;
+mod settings_backup;
 mod setup;
+#[cfg(windows)]
+#[cfg_attr(
+    debug_assertions,
+    expect(dead_code, reason = "only a release build restarts")
+)]
+mod shell_relaunch;
 mod state;
 mod telemetry;
 mod tray;
@@ -48,10 +57,18 @@ fn main() {
         logging::cleanup_old_logs(p, 7);
     }
 
+    // Before the single-instance plugin, which the copy must be the first to take.
+    // A debug build is a child of `tauri dev` and stays one.
+    #[cfg(all(windows, not(debug_assertions)))]
+    if shell_relaunch::relaunch_if_needed() {
+        return;
+    }
+
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             deep_link::handle_argv(app, &argv, std::path::Path::new(&cwd));
         }))
+        .plugin(data_usage::plugin())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_clipboard_manager::init())

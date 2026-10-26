@@ -2,7 +2,9 @@ import { match } from "ts-pattern";
 
 import type {
   AppError,
+  DataMoveError,
   EditRejection,
+  SettingsBackupError,
   InjectionStage,
   IntegrationError,
   LauncherError,
@@ -13,6 +15,7 @@ import type {
 } from "@/lib/tauri";
 import { m } from "@/paraglide/messages";
 import { isAppError } from "@/utils/errors";
+import { formatBytes } from "@/utils/formatBytes";
 
 /** The copy for one error: what went wrong, the remedy, and any prose from outside the app. */
 export interface ErrorCopy {
@@ -26,6 +29,8 @@ export interface ErrorCopy {
 export function describeError(error: AppError): ErrorCopy {
   return match(error)
     .with({ code: "INTEGRATION" }, (e) => integrationError(e.error))
+    .with({ code: "DATA_MOVE" }, (e) => dataMoveError(e.error))
+    .with({ code: "SETTINGS_BACKUP" }, (e) => settingsBackupError(e.error))
     .with({ code: "IO" }, (e) => withDetail(m["error.IO.title"](), e.detail))
     .with({ code: "SERIALIZATION" }, (e) => withDetail(m["error.SERIALIZATION.title"](), e.detail))
     .with({ code: "MODPKG" }, (e) => withDetail(m["error.MODPKG.title"](), e.detail))
@@ -339,6 +344,47 @@ export function errorMessage(error: unknown): string {
   if (isAppError(error)) return errorSummary(error);
   if (error instanceof Error) return error.message;
   return m.common_unknown_error_label();
+}
+
+function settingsBackupError(error: SettingsBackupError): ErrorCopy {
+  return match(error)
+    .with({ kind: "notABackup" }, () => ({
+      title: m.settings_backup_error_not_a_backup_title(),
+    }))
+    .with({ kind: "newerVersion" }, () => ({
+      title: m.settings_backup_error_newer_version_title(),
+      description: m.settings_backup_error_newer_version_description(),
+    }))
+    .with({ kind: "io" }, (e) => withDetail(m.settings_backup_error_io_title(), e.detail))
+    .exhaustive();
+}
+
+function dataMoveError(error: DataMoveError): ErrorCopy {
+  return match(error)
+    .with({ kind: "sameFolder" }, () => ({
+      title: m.settings_data_move_error_same_folder_title(),
+    }))
+    .with({ kind: "insideData" }, () => ({
+      title: m.settings_data_move_error_inside_data_title(),
+      description: m.settings_data_move_error_inside_data_description(),
+    }))
+    .with({ kind: "occupied" }, ({ entries }) => ({
+      title: m.settings_data_move_error_occupied_title(),
+      description: m.settings_data_move_error_occupied_description({ entries: entries.join(", ") }),
+    }))
+    .with({ kind: "patcherRunning" }, () => ({
+      title: m.settings_data_move_error_patcher_running_title(),
+      description: m.settings_data_move_error_patcher_running_description(),
+    }))
+    .with({ kind: "noSpace" }, ({ needed, available }) => ({
+      title: m.settings_data_move_error_no_space_title(),
+      description: m.settings_data_move_error_no_space_description({
+        needed: formatBytes(needed),
+        available: formatBytes(available),
+      }),
+    }))
+    .with({ kind: "io" }, (e) => withDetail(m.settings_data_move_error_io_title(), e.detail))
+    .exhaustive();
 }
 
 function integrationError(error: IntegrationError): ErrorCopy {

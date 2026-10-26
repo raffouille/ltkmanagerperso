@@ -1,17 +1,15 @@
-//! Child systems that the open bin does not declare, read from the bins it links and from the
-//! bin of the skin that the system's path names.
+//! Child systems that the bin of a system does not declare, read from the bins of the lookup
+//! and from the bin of the skin that the system's path names.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 
 use indexmap::IndexMap;
 use ltk_hash::BinHash;
-use ltk_manager_assets::preview::AssetRef;
 use ltk_manager_base::hashing::named;
-use ltk_manager_bin::bin_document::{AssetLookup, BinDocument, RowNames};
 use ltk_manager_bin::object_index::parse_hash;
 
 use super::{CHILD_IDENTIFIER, MAX_NODES, SYSTEM_DEFINITION, resolve_system, resources};
-use crate::linked::LINKED_CAP;
+use crate::lookup::{Declared, ObjectLookup};
 use crate::material::MaterialPreview;
 use crate::resolver::{EFFECT_KEY, skin_bin};
 use crate::vfx::{VfxField, VfxSystem, VfxValue};
@@ -19,43 +17,28 @@ use crate::vfx::{VfxField, VfxSystem, VfxValue};
 /// `VfxChildIdentifier.effect`, the link to the child's system.
 const EFFECT: BinHash = named("effect");
 
-/// Resolves each child identifier of `system` whose system `document` does not hold.
+/// Resolves each child identifier of `system` whose system the bin at `base` does not hold.
 ///
-/// An `effect` link resolves in the first bin that holds its object. An `effectKey` resolves
-/// through the `ResourceResolver`s of `document`, then through those of
-/// `data/characters/<name>/skins/<skin>.bin` for a system under `Characters/<name>/Skins/<skin>/`.
-/// Its system is then read from `document`, or from the first bin that holds it. Bins are
-/// read from `linked` and the skin bin, and from what each links, breadth first. A child
-/// already open above an identifier stays a link, and so does every child once the tree
-/// holds [`MAX_NODES`] values. The materials of each child are added to `system`'s, with the
-/// bin they were read from as their `source`.
-pub fn search_linked_children(
+/// An `effect` link resolves in the first bin of the lookup that holds its object. An
+/// `effectKey` resolves through the `ResourceResolver`s of the bin at `base`, then through
+/// those of `data/characters/<name>/skins/<skin>.bin` for a system under
+/// `Characters/<name>/Skins/<skin>/`. Its system is then read from the bin at `base`, or from
+/// the first bin of the lookup that holds it. A child already open above an identifier stays a
+/// link, and so does every child once the tree holds [`MAX_NODES`] values. The materials of
+/// each child are added to `system`'s.
+pub(crate) fn search_linked_children(
     system: &mut VfxSystem,
-    document: &BinDocument,
-    linked: Vec<AssetRef>,
-    names: &dyn RowNames,
-    assets: &dyn AssetLookup,
-    shaders: Option<&BinDocument>,
-    read: &mut dyn FnMut(&AssetRef) -> Option<BinDocument>,
+    base: Declared,
+    lookup: &mut ObjectLookup<'_>,
 ) {
     let mut search = Search {
-        open: document,
-        open_keys: resources(document),
-        bins: Bins {
-            assets,
-            read,
-            seen: HashSet::new(),
-            documents: Vec::new(),
-            opened: 0,
-        },
-        linked: Some(linked),
+        base,
+        base_keys: resources(lookup.document(base)),
+        lookup,
         skins: HashMap::new(),
         children: HashMap::new(),
         materials: Vec::new(),
         budget: MAX_NODES.saturating_sub(size(&system.root)),
-        names,
-        assets,
-        shaders,
     };
     search.visit(&mut system.root, None, &mut Vec::new());
 
@@ -70,54 +53,12 @@ pub fn search_linked_children(
     }
 }
 
-/// The bins one search reads, each once, in the order the search reaches them.
-struct Bins<'a> {
-    assets: &'a dyn AssetLookup,
-    read: &'a mut dyn FnMut(&AssetRef) -> Option<BinDocument>,
-    seen: HashSet<AssetRef>,
-    documents: Vec<(AssetRef, BinDocument)>,
-    opened: usize,
-}
-
-impl Bins<'_> {
-    /// Reads `start` and the bins that each links, breadth first, until [`LINKED_CAP`] bins
-    /// are read. Skips a bin that is already read and a bin that `read` cannot parse.
-    fn reach(&mut self, start: Vec<AssetRef>) {
-        let mut queue: VecDeque<AssetRef> = start
-            .into_iter()
-            .filter(|asset| self.seen.insert(asset.clone()))
-            .collect();
-
-        while let Some(asset) = queue.pop_front() {
-            if self.opened == LINKED_CAP {
-                return;
-            }
-            self.opened += 1;
-            let Some(document) = (self.read)(&asset) else {
-                continue;
-            };
-
-            for next in document
-                .dependencies()
-                .iter()
-                .filter_map(|path| self.assets.locate(path))
-            {
-                if self.seen.insert(next.clone()) {
-                    queue.push_back(next);
-                }
-            }
-            self.documents.push((asset, document));
-        }
-    }
-}
-
 /// One search over one system's tree.
-struct Search<'a> {
-    open: &'a BinDocument,
-    open_keys: IndexMap<BinHash, BinHash>,
-    bins: Bins<'a>,
-    /// The bins `document` links, until the first child that needs them reads them.
-    linked: Option<Vec<AssetRef>>,
+struct Search<'s, 'r> {
+    /// The bin that declares the system.
+    base: Declared,
+    base_keys: IndexMap<BinHash, BinHash>,
+    lookup: &'s mut ObjectLookup<'r>,
     /// The effect keys of each skin bin, by its path.
     skins: HashMap<String, IndexMap<BinHash, BinHash>>,
     /// Each child read so far, and `None` for one that no bin holds.
@@ -125,12 +66,9 @@ struct Search<'a> {
     materials: Vec<MaterialPreview>,
     /// How many values the spliced children can still add.
     budget: usize,
-    names: &'a dyn RowNames,
-    assets: &'a dyn AssetLookup,
-    shaders: Option<&'a BinDocument>,
 }
 
-impl Search<'_> {
+impl Search<'_, '_> {
     /// Visits `value` and each value under it, resolving each child identifier on the way.
     ///
     /// `owner` is the path of the nearest system above `value`, and `open` holds the entries
@@ -219,27 +157,21 @@ impl Search<'_> {
         }
     }
 
-    /// Returns the object that `key` maps to, through the open bin's resolvers, then through
-    /// the resolvers of the skin bin that `owner` names.
+    /// Returns the object that `key` maps to, through the resolvers of the system's bin, then
+    /// through the resolvers of the skin bin that `owner` names.
     fn target(&mut self, key: BinHash, owner: Option<&str>) -> Option<BinHash> {
-        if let Some(target) = self.open_keys.get(&key) {
+        if let Some(target) = self.base_keys.get(&key) {
             return Some(*target);
         }
 
         let path = skin_bin(owner?)?;
         if !self.skins.contains_key(&path) {
-            self.reach_linked();
             let keys = self
-                .assets
+                .lookup
+                .assets()
                 .locate(&path)
-                .and_then(|asset| {
-                    self.bins.reach(vec![asset.clone()]);
-                    self.bins
-                        .documents
-                        .iter()
-                        .find(|(read, _)| *read == asset)
-                        .map(|(_, document)| resources(document))
-                })
+                .and_then(|asset| self.lookup.bin(asset))
+                .map(|found| resources(self.lookup.document(found)))
                 .unwrap_or_default();
             self.skins.insert(path.clone(), keys);
         }
@@ -259,18 +191,20 @@ impl Search<'_> {
     }
 
     fn read_child(&mut self, target: BinHash) -> Option<VfxValue> {
-        let (source, document) = if self.open.object_at(target).is_some() {
-            (None, self.open)
+        let found = if self.lookup.document(self.base).object_at(target).is_some() {
+            self.base
         } else {
-            self.reach_linked();
-            let (source, document) = self
-                .bins
-                .documents
-                .iter()
-                .find(|(_, document)| document.object_at(target).is_some())?;
-            (Some(source.clone()), document)
+            self.lookup.find(target)?
         };
-        let child = resolve_system(document, target, self.names, self.assets, self.shaders).ok()?;
+        let lookup = &*self.lookup;
+        let child = resolve_system(
+            lookup.document(found),
+            target,
+            lookup.names(),
+            lookup.assets(),
+            lookup.shaders(),
+        )
+        .ok()?;
 
         let spent = size(&child.root);
         if spent > self.budget {
@@ -278,20 +212,8 @@ impl Search<'_> {
         }
         self.budget -= spent;
 
-        for mut material in child.materials {
-            if !material.missing && material.source.is_none() {
-                material.source.clone_from(&source);
-            }
-            self.materials.push(material);
-        }
+        self.materials.extend(child.materials);
         Some(child.root)
-    }
-
-    /// Reads the bins the open bin links, once.
-    fn reach_linked(&mut self) {
-        if let Some(linked) = self.linked.take() {
-            self.bins.reach(linked);
-        }
     }
 }
 

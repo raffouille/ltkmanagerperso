@@ -3177,7 +3177,7 @@ dependencies = [
 
 [[package]]
 name = "ltk-manager"
-version = "1.29.0"
+version = "1.30.5"
 dependencies = [
  "anyhow",
  "assert_matches",
@@ -3244,6 +3244,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "webview2-com",
+ "windows 0.61.3",
  "windows-core 0.61.2",
  "windows-sys 0.59.0",
  "zip 2.4.2",
@@ -3266,6 +3267,7 @@ dependencies = [
  "ltk_anim",
  "ltk_fantome",
  "ltk_file",
+ "ltk_game_index 0.2.0",
  "ltk_hash",
  "ltk_hashdb",
  "ltk_hashtable",
@@ -3342,8 +3344,8 @@ dependencies = [
  "ltk-manager-base",
  "ltk-manager-workshop",
  "ltk-meta-docs",
- "ltk_file",
  "ltk_game_data",
+ "ltk_game_index 0.2.0",
  "ltk_hash",
  "ltk_hashdb",
  "ltk_hashtable",
@@ -3353,7 +3355,6 @@ dependencies = [
  "ltk_modpkg",
  "ltk_wad",
  "parking_lot",
- "rayon",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
@@ -3481,6 +3482,7 @@ dependencies = [
  "ltk-manager-workshop",
  "ltk_fantome",
  "ltk_file",
+ "ltk_game_index 0.2.0",
  "ltk_hash",
  "ltk_hashdb",
  "ltk_hashtable",
@@ -3491,6 +3493,7 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
+ "sha2",
  "specta",
  "tempfile",
  "thiserror 2.0.18",
@@ -3692,6 +3695,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "ltk_game_index"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4213a14fac6cf9f4ee4609f22c7fe8476f144fb490e7499e4e782e43151f9e49"
+dependencies = [
+ "camino",
+ "ltk_file",
+ "ltk_hash",
+ "ltk_meta",
+ "ltk_wad",
+ "memchr",
+ "rayon",
+ "rmp-serde",
+ "serde",
+ "thiserror 2.0.18",
+ "tracing",
+ "walkdir",
+ "xxhash-rust",
+]
+
+[[package]]
 name = "ltk_hash"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3882,7 +3906,7 @@ dependencies = [
  "ltk_fantome",
  "ltk_file",
  "ltk_game_data",
- "ltk_game_index",
+ "ltk_game_index 0.1.5",
  "ltk_meta",
  "ltk_mod_project",
  "ltk_modpkg",

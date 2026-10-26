@@ -6,7 +6,7 @@
 
 pub mod champions;
 pub mod character;
-mod linked;
+pub mod lookup;
 pub mod map;
 pub mod material;
 pub mod program;

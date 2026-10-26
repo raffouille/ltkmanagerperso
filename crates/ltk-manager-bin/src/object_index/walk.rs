@@ -3,9 +3,10 @@
 //!
 //! "The References document" in `docs/ux/PROJECT_EDITOR.md`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 
+use ltk_game_index::{DeclarationId, TermIndex, TermKind, TermKinds};
 use ltk_hash::{BinHash, Hash as _, WadHash};
 use ltk_meta::property::Kind;
 use ltk_meta::walk::{ChildSegment, Leaf, Node, NodeRef, TreeNode, TreeValue, Visit, Visitor};
@@ -32,6 +33,43 @@ pub enum WalkTarget {
 }
 
 impl WalkTarget {
+    /// Returns the declaring chunks of `terms` that hold a term the target names.
+    ///
+    /// An embedded class reads the `Embedded` posting of the class, and an object the
+    /// `Link` and `Hash` postings of its path hash. A file reads the `Wad` posting of its
+    /// chunk, and for a named file the `Hash` posting of its name hash and the `String`
+    /// posting of its lowercased path.
+    #[must_use]
+    pub fn chunks_in(&self, terms: &TermIndex) -> HashSet<WadHash> {
+        let ids: Vec<DeclarationId> = match self {
+            Self::Embedded(class) => terms
+                .hash_postings(TermKind::Embedded, u64::from(class.0))
+                .to_vec(),
+            Self::Linked(object) => terms.postings_in(
+                TermKinds::of([TermKind::Link, TermKind::Hash]),
+                u64::from(object.0),
+            ),
+            Self::File(file) => {
+                let mut ids = terms.hash_postings(TermKind::Wad, file.chunk.0).to_vec();
+                if let Some((path, named)) = &file.path {
+                    ids.extend(terms.hash_postings(TermKind::Hash, u64::from(named.0)));
+
+                    let lower = path.to_ascii_lowercase();
+                    let strings = terms.strings();
+                    for term in strings.scan(&lower) {
+                        if strings.entry_lower(term) == lower {
+                            ids.extend(terms.string_postings(term));
+                        }
+                    }
+                }
+                ids
+            }
+        };
+
+        let rows = terms.objects().rows();
+        ids.into_iter().map(|id| rows[id.index()].chunk).collect()
+    }
+
     /// Whether a value of `kind` can hold what the walk looks for, itself or below it.
     fn reaches(&self, kind: Kind) -> bool {
         match kind {

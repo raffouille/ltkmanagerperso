@@ -1,7 +1,7 @@
 import { useFrame } from "@react-three/fiber";
 import { useMemo } from "react";
 
-import type { IdleEffect as IdleEffectModel } from "@/lib/tauri";
+import type { JointEffect as JointEffectModel } from "@/lib/tauri";
 import type { Pose, SceneClock } from "@/modules/viewport";
 
 import type { SystemModel } from "../../vfx/engine/model/model";
@@ -9,13 +9,13 @@ import { VfxSystem } from "../../vfx/rendering/components/VfxSystem";
 import { useParticleSystem } from "../../vfx/rendering/hooks/useParticleSystem";
 import { drawnEmitters } from "../../vfx/rendering/utils/definitions";
 import { followClock, following } from "../utils/follow";
-import { idleRig } from "../utils/skinScene";
+import { jointRig } from "../utils/skinScene";
 
 /** The seed every idle effect runs on, so two readers of one skin see the same run. */
 const IDLE_SEED = 1337;
 
-export interface IdleEffectProps {
-  readonly effect: IdleEffectModel;
+export interface JointEffectProps {
+  readonly effect: JointEffectModel;
   readonly system: SystemModel;
   readonly pose: Pose;
   readonly clock: SceneClock;
@@ -29,9 +29,9 @@ export interface IdleEffectProps {
  * The driver follows the scene's clock rather than the frame, so the effect and the pose
  * it rides are sampled at one time, and a seek or a pause of the clock holds both.
  */
-export function IdleEffect({ effect, system, pose, clock, scale }: IdleEffectProps) {
+export function JointEffect({ effect, system, pose, clock, scale }: JointEffectProps) {
   const drawn = useMemo(() => drawnEmitters(system, true), [system]);
-  const rig = useMemo(() => idleRig(pose, effect, scale), [pose, effect, scale]);
+  const rig = useMemo(() => jointRig(pose, effect, scale), [pose, effect, scale]);
   const { textures, meshes, driver } = useParticleSystem(system, drawn, IDLE_SEED, rig);
   const followed = useMemo(following, []);
 

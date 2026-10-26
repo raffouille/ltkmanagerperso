@@ -95,7 +95,7 @@ describe("timedSteps", () => {
 });
 
 describe("particleCues", () => {
-  const systems = [{ key: "0x01", system: "0xaa", source: null }];
+  const systems = [{ key: "0x01", system: "0xaa", name: null }];
 
   it("places a particle event on the pass, one cue per pair, with the end frame as its stop", () => {
     const start = clip("Attack", [event("Hit", FLASH, 12, 40)]);
@@ -105,7 +105,6 @@ describe("particleCues", () => {
       {
         key: `1:${nameHash("Hit")}:0`,
         system: "0xaa",
-        source: null,
         at: 2 + 6,
         until: 2 + 20,
         bone: ref("Head"),

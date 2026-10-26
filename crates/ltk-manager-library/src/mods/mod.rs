@@ -48,7 +48,7 @@ pub use health::timing::{HealthTiming, ModTiming};
 pub use health::{HealthCheckReadiness, ModHealth, ModHealthVerdict};
 pub use index::document::ModArchiveFormat;
 pub use index::layout_migration::LayoutMigrationState;
-pub use layout::StorageLayout;
+pub use layout::{StorageLayout, is_library_entry};
 pub use types::{
     BulkInstallResult, EditModMetadataArgs, InstallOutcome, InstalledMod, LibraryFolder,
     ModLicense, Profile,

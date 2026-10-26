@@ -48,5 +48,5 @@ what done looks like. `manager` is this repository, `service` is `ltk-patcher-de
 ## Phase 4: production
 
 - [ ] P1 Production worker gets `MANAGER_ATTESTATION_PUBLIC_KEYS` from K3, and the production private key enters the repository secret for stable releases.
-- [ ] P2 `delivery.rs` constants switch to the production URL and manifest key. The `shortcut:` comment is removed.
+- [x] P2 `delivery.rs` holds the staging and the production service, chosen by `LTK_PATCHER_DELIVERY`, which the release workflow sets to `staging` for a pre-release and `production` for a release, with the matching attestation secret. Both services carry their manifest key.
 - [ ] P3 A stable release registers against production, by its `registration` event.

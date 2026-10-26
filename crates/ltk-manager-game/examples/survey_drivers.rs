@@ -22,7 +22,8 @@ use ltk_hash::{BinHash, Hash as _};
 use ltk_manager_assets::hashtables::{BinHashTables, HashtableCache};
 use ltk_manager_base::hashing::named;
 use ltk_manager_bin::bin_document::{BinDocument, RowNames};
-use ltk_manager_game::vfx::{VfxValue, resolve_system};
+use ltk_manager_game::lookup::ObjectLookup;
+use ltk_manager_game::vfx::VfxValue;
 use ltk_meta::property::values;
 use ltk_meta::{BinObject, PropertyValueEnum};
 use ltk_wad::WadHash;
@@ -142,7 +143,8 @@ fn main() {
                 continue;
             }
             for entry in systems {
-                let Ok(system) = resolve_system(&document, entry, &names, &(), None) else {
+                let Ok(system) = ObjectLookup::single(&document, &names, &(), None).system(entry)
+                else {
                     eprintln!("refused to resolve 0x{:08x}", entry.0);
                     continue;
                 };

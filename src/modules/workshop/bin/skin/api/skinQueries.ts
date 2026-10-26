@@ -25,26 +25,19 @@ export const skinQueries = {
     }),
   /**
    * The materials `entries` name with the game's own shaders translated, one for one,
-   * and nothing where the file declares no material under the entry.
-   *
-   * The materials are read from `source`, a file the skin links, and from the skin's own
-   * bin where it is null.
+   * and nothing where no bin within reach of the skin declares a material under the entry.
    */
-  programs: (document: BinDocumentId, entries: readonly string[], source: AssetRef | null) =>
+  programs: (document: BinDocumentId, entries: readonly string[]) =>
     queryOptions<(MaterialProgram | null)[], AppError>({
-      queryKey: ["skin-programs", document, entries, source],
+      queryKey: ["skin-programs", document, entries],
       queryFn:
         entries.length === 0
           ? skipToken
           : async () =>
               unwrapForQuery(
-                await api.bin.readMaterialPrograms(
-                  source === null
-                    ? { kind: "document", document }
-                    : { kind: "file", asset: source, document },
-                  entries,
-                  { lowQuality: false },
-                ),
+                await api.bin.readMaterialPrograms({ kind: "document", document }, entries, {
+                  lowQuality: false,
+                }),
               ),
       staleTime: Infinity,
       retry: false,

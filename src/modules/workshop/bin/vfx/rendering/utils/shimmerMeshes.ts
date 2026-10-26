@@ -38,11 +38,9 @@ export interface EmbeddedMaterialAt {
   readonly path: string;
 }
 
-/** A material a render component links to, and the linked file that declares it. */
+/** A material a render component links to, which the system's read resolved. */
 export interface LinkedMaterial {
   readonly hash: string;
-  /** Null where the system's own bin declares it. */
-  readonly file: AssetRef | null;
 }
 
 /** One shimmer emitter's mesh, and the components that spawn and move its particles. */
@@ -125,8 +123,8 @@ function meshesOf(
 }
 
 /**
- * The material `render` links to rather than embeds, with the file the system read found it
- * in, and null where the link names nothing any bin declares.
+ * The material `render` links to rather than embeds, and null where the link names nothing
+ * any bin within reach declares.
  *
  * A link to an object of the system's own bin is inlined by the read, and `materialAt`
  * finds it as an embedded material.
@@ -140,7 +138,7 @@ function linkedMaterial(
 
   const preview = previews.get(held.hash);
   if (preview === undefined || preview.missing) return null;
-  return { hash: held.hash, file: preview.source };
+  return { hash: held.hash };
 }
 
 /**

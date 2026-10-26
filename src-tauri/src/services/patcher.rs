@@ -210,9 +210,6 @@ pub(crate) fn start_patcher_inner(
     );
 
     let mut host_flags = config.flags.unwrap_or(0) as u32;
-    if !config_snapshot.enforce_skinhack_scan {
-        host_flags |= crate::patcher::host::hook_flags::OPT_OUT_AH_V1;
-    }
     if config_snapshot.full_wad_scan {
         host_flags |= crate::patcher::host::hook_flags::FULL_WAD_SCAN;
     }
