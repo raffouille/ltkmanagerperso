@@ -8,7 +8,7 @@ import { ReleaseHistory, useReleaseHistory } from "@/modules/updater";
 import { useUpdaterSetDialogOpen, useUpdaterUpdate } from "@/stores";
 import { twMerge } from "@/utils";
 
-import { bundledReleaseNote, releaseDigest } from "../api";
+import { bundledReleaseNote, newerOfficialRelease, releaseDigest } from "../api";
 import { Tile } from "./Tile";
 
 /** The notes the build ships, read once: they cannot change while it runs. */
@@ -17,12 +17,17 @@ const BUNDLED = bundledReleaseNote();
 const CHIP =
   "inline-flex shrink-0 items-center rounded-sm px-1.5 py-0.5 text-fine leading-tight font-medium";
 
-/** The release a digest is drawn for: the one on offer, else the one installed. */
+/**
+ * The release a digest is drawn for: the one on offer, else a newer official release, else the
+ * one installed.
+ */
 interface HeadRelease {
   version: string;
   body: string | undefined;
   publishedAt: string | null;
   pending: boolean;
+  /** A release of the official build newer than this one, which this build does not install. */
+  official: boolean;
 }
 
 /**
@@ -41,7 +46,8 @@ export function WhatsNew() {
 
   const installedVersion = appInfo?.version ?? BUNDLED?.version;
   const installed = releases.find((release) => release.version === installedVersion) ?? BUNDLED;
-  const head = headRelease(update, installed);
+  const official = update ? null : newerOfficialRelease(releases, installedVersion);
+  const head = headRelease(update, official, installed);
 
   const ToggleGlyph = expanded ? CaretUpIcon : CaretDownIcon;
   const toggleLabel = expanded ? m.home_changes_fewer_action() : m.home_changes_all_action();
@@ -59,7 +65,12 @@ export function WhatsNew() {
                 {m.updater_release_pending_label()}
               </span>
             )}
-            {!head.pending && (
+            {head.official && (
+              <span className={twMerge(CHIP, "bg-accent-500/15 text-accent-400")}>
+                {m.home_release_official_label()}
+              </span>
+            )}
+            {!head.pending && !head.official && (
               <span className={twMerge(CHIP, "bg-surface-700 text-surface-300")}>
                 {m.updater_release_installed_label()}
               </span>
@@ -136,6 +147,7 @@ function Digest({ body }: { body: string | undefined }) {
 
 function headRelease(
   update: ReturnType<typeof useUpdaterUpdate>,
+  official: { version: string; body: string; publishedAt: string | null } | null,
   installed: { version: string; body: string; publishedAt: string | null } | null,
 ): HeadRelease | null {
   if (update) {
@@ -144,12 +156,23 @@ function headRelease(
       body: update.body ?? undefined,
       publishedAt: null,
       pending: true,
+      official: false,
+    };
+  }
+
+  if (official) {
+    return {
+      version: official.version,
+      body: official.body,
+      publishedAt: official.publishedAt,
+      pending: false,
+      official: true,
     };
   }
 
   if (!installed) return null;
 
-  return { ...installed, pending: false };
+  return { ...installed, pending: false, official: false };
 }
 
 /** The day a release shipped, in the reader's locale. */

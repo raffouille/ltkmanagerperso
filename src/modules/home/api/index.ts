@@ -1,5 +1,6 @@
 export { bundledReleaseNote } from "./bundledReleaseNote";
 export { homeKeys } from "./keys";
+export { newerOfficialRelease } from "./newerOfficialRelease";
 export { type DigestSection, releaseDigest } from "./releaseDigest";
 export { newestPostAt, useAnnouncements } from "./useAnnouncements";
 export { type ModExport, useExportMods } from "./useExportMods";
