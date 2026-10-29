@@ -14,6 +14,11 @@ la v1.29.0.
   le skin avant les toutes dernières secondes de la sélection.
 - Changer **Kept skins** pendant que le patcher tourne reconstruit le patch tout de suite, sans
   le relancer.
+- **Patcher** : cette version ne peut pas télécharger elle-même le patcher corrigé de
+  LeagueToolkit. Elle réutilise celui que la version officielle a téléchargé dans le même
+  dossier de données, après avoir vérifié sa signature. Si les mods ne s'affichent plus après un
+  patch de League, ouvrez la version officielle une fois et lancez son patcher pour qu'elle
+  télécharge le nouveau, puis revenez à cette version.
 - Les mises à jour automatiques sont coupées (`OFFERS_RELEASES` dans `src-tauri/src/updater.rs`),
   sinon une version officielle remplacerait celle-ci.
 - Le workflow `CI` officiel est désactivé dans l'onglet Actions, pour ne pas consommer de minutes.

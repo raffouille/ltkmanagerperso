@@ -35,6 +35,9 @@ const BUNDLED_HOST_PROTOCOL: u32 = 3;
 /// Tauri-managed delivery client, and the lock that allows one sync at a time.
 pub struct PatcherDeliveryState {
     delivery: Option<Arc<PatcherDelivery>>,
+    /// Whether the client syncs with the service. A client without an attestation only reads
+    /// the cache that an official build of the same data directory fills.
+    syncs: bool,
     syncing: Arc<Mutex<()>>,
 }
 
@@ -79,6 +82,23 @@ impl PatcherDeliveryState {
                 );
                 None
             }
+            (true, None, _, Some(dir)) => {
+                tracing::info!(
+                    "This build has no attestation. Running the patcher DLL that an official build downloaded, if its manifest verifies, and the bundled DLL otherwise"
+                );
+                return Self {
+                    delivery: Some(Arc::new(PatcherDelivery {
+                        root: dir.join(crate::data_location::PATCHER),
+                        url: PRODUCTION.0.to_string(),
+                        public_key: PRODUCTION.1.to_string(),
+                        attestation: String::new(),
+                        manager,
+                        protocol: BUNDLED_HOST_PROTOCOL,
+                    })),
+                    syncs: false,
+                    syncing: Arc::new(Mutex::new(())),
+                };
+            }
             _ => None,
         };
         if let Some(delivery) = &delivery {
@@ -87,6 +107,7 @@ impl PatcherDeliveryState {
 
         Self {
             delivery,
+            syncs: true,
             syncing: Arc::new(Mutex::new(())),
         }
     }
@@ -96,9 +117,10 @@ impl PatcherDeliveryState {
         self.delivery.as_deref()
     }
 
-    /// Syncs the channel of `config` on a background thread, after any running sync.
+    /// Syncs the channel of `config` on a background thread, after any running sync. Does nothing
+    /// if the client only reads the cache.
     pub fn sync_in_background(&self, config: &Config) {
-        let Some(delivery) = self.delivery.clone() else {
+        let Some(delivery) = self.delivery.clone().filter(|_| self.syncs) else {
             return;
         };
 
