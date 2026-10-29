@@ -41,7 +41,7 @@ use ltk_manager_base::config::Config;
 use ltk_manager_base::error::{AppError, AppResult, DomainError, ErrorKind, Utf8PathRefExt};
 use ltk_manager_base::events::EventSink;
 use ltk_manager_base::utils::fs::atomic_write;
-use ltk_mod_project::{ModProject, ModProjectAuthor};
+use ltk_mod_project::{ModProject, ModProjectAuthor, ModProjectDistributor};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -187,6 +187,18 @@ impl ProjectDir {
         let contents = serde_json::to_string_pretty(config)?;
         atomic_write(&self.0.join("mod.config.json"), contents.as_bytes())?;
         Ok(())
+    }
+
+    /// Writes `distributor` into the project config, over any stamp it has. Every later pack
+    /// carries it.
+    ///
+    /// # Errors
+    ///
+    /// Fails if the config cannot be read or written.
+    pub fn write_distributor(&self, distributor: ModProjectDistributor) -> AppResult<()> {
+        let mut config = self.config()?;
+        config.distributor = Some(distributor);
+        self.write_config(&config)
     }
 
     /// Read the project as the frontend sees it.

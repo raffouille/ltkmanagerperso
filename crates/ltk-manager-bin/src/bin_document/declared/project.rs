@@ -4,7 +4,7 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use ltk_game_data::{Edit, Selector, apply};
+use ltk_game_data::{Edit, ObjectEdit, Selector, Target, apply};
 use ltk_hash::BinHash;
 use ltk_mod_project::ModProjectLayer;
 use ltk_mod_project::game_data::{LayerDeclarations, load_layer};
@@ -12,6 +12,7 @@ use ltk_mod_project::game_data::{LayerDeclarations, load_layer};
 use super::diagnostics::Raised;
 use super::{GameCopy, edits_on, read_entry};
 use crate::meta_schema::PatchSchema;
+use ltk_manager_assets::preview::AssetRef;
 use ltk_manager_base::error::{AppError, AppResult, Utf8PathRefExt as _};
 use ltk_manager_workshop::ProjectDir;
 
@@ -59,6 +60,30 @@ impl ProjectDeclarations {
         self.layers.iter().map(|(name, _)| name.as_str())
     }
 
+    /// Returns the target of each module that creates the object `entry`, in build order.
+    ///
+    /// An object that a project creates is in no chunk of the game, so the object index does
+    /// not find it, and a read looks for it in these targets.
+    #[must_use]
+    pub fn creating_targets(&self, entry: BinHash) -> Vec<&Target> {
+        self.layers
+            .iter()
+            .filter_map(|(_, loaded)| match &loaded.declarations {
+                Ok(Some(declarations)) => Some(declarations),
+                _ => None,
+            })
+            .flat_map(|declarations| &declarations.modules)
+            .filter_map(|module| match &module.selector {
+                Selector::Target { target, edits }
+                    if edits.iter().any(|edit| creates(edit, entry)) =>
+                {
+                    Some(target)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The chunk `chunk_hash`, whose copy is `game`, with every layer's declarations applied.
     /// None where no declaration reaches it.
     ///
@@ -86,6 +111,34 @@ impl ProjectDeclarations {
 
         self.apply_chunk(game, chunk_hash, &entries, &mut Vec::new())
             .map(Some)
+    }
+
+    /// Returns `bytes`, the file at `asset`, with every layer's declarations applied if `asset`
+    /// is a game bin chunk that a declaration reaches.
+    ///
+    /// Returns `bytes` unchanged for any other asset. If a declaration does not apply, logs a
+    /// warning and returns the game's copy, as the declared document raises it where it is
+    /// edited.
+    #[must_use]
+    pub fn declared_asset(&self, asset: &AssetRef, bytes: Vec<u8>) -> Vec<u8> {
+        let AssetRef::GameChunk { path_hash, .. } = asset else {
+            return bytes;
+        };
+        if !(bytes.starts_with(b"PROP") || bytes.starts_with(b"PTCH")) {
+            return bytes;
+        }
+        let Some(chunk_hash) = asset.chunk_hash() else {
+            return bytes;
+        };
+
+        match self.apply(&bytes, chunk_hash.0) {
+            Ok(Some(applied)) => applied,
+            Ok(None) => bytes,
+            Err(error) => {
+                tracing::warn!(%path_hash, %error, "A preview draws a chunk undeclared");
+                bytes
+            }
+        }
     }
 
     /// `game`, the chunk `chunk_hash` whose objects are `entries`, with every layer's
@@ -137,6 +190,13 @@ impl ProjectDeclarations {
         }
         Ok(bytes)
     }
+}
+
+/// `true` if `edit` creates the object `entry`.
+fn creates(edit: &Edit, entry: BinHash) -> bool {
+    edit.objects
+        .iter()
+        .any(|(name, object)| name.object_hash() == entry && !matches!(object, ObjectEdit::Remove))
 }
 
 /// The objects a chunk declares, none where it does not mount as a bin.

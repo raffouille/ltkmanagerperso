@@ -363,6 +363,33 @@ pub struct ProtocolInstallProgress {
     pub error: Option<String>,
 }
 
+/// Where a publish to RuneForge has got to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub enum RuneforgePublishStage {
+    Validating,
+    Packing,
+    Uploading,
+    Inspecting,
+    Complete,
+    Error,
+}
+
+/// How far the publish of one project to RuneForge has got. Throttled by its emitter.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(specta::Type))]
+#[serde(rename_all = "camelCase")]
+pub struct RuneforgePublishProgress {
+    /// The project directory that the publish packs.
+    pub project_path: String,
+    pub stage: RuneforgePublishStage,
+    /// The package bytes sent to storage so far.
+    pub bytes_sent: u64,
+    /// The size of the package, or 0 before the pack ends.
+    pub total_bytes: u64,
+}
+
 /// Declares [`BackendEvent`] and its event names from a single list.
 ///
 /// Each entry is `Variant(Payload) => "event-name"`, or `Variant => "event-name"`
@@ -444,6 +471,8 @@ declare_events! {
     GitImportProgress(GitImportProgress) => "git-import-progress",
     /// The download an install link started advanced.
     ProtocolInstallProgress(ProtocolInstallProgress) => "protocol-install-progress",
+    /// A publish of a project to RuneForge advanced. Throttled by its emitter.
+    RuneforgePublishProgress(RuneforgePublishProgress) => "runeforge-publish-progress",
     /// A League launch request advanced.
     LaunchProgress(LaunchProgress) => "launch-progress",
     /// The Riot Client opened a session for League. Emitted once per session,

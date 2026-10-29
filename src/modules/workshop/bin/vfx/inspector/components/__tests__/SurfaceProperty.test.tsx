@@ -198,6 +198,7 @@ function meshOf(...names: string[]): MeshGeometry {
     skinIndices: null,
     skinWeights: null,
     colors: null,
+    tangents: null,
     indices: new Uint32Array(),
     ranges: names.map((name) => ({ name, startIndex: 0, indexCount: 0 })),
   };

@@ -1130,9 +1130,69 @@ fn a_skin_that_names_nothing_answers_the_defaults() {
     assert!((skin.scale - 1.0).abs() < f32::EPSILON);
     assert!(skin.self_illumination.abs() < f32::EPSILON);
     assert_eq!(skin.emissive_texture, None);
+    assert_eq!(skin.roughness_metallic_ao_texture, None);
+    assert_eq!(skin.normal_map_texture, None);
     assert!(skin.idle_effects.is_empty());
     assert!(skin.persistent_conditions.is_empty());
     assert_eq!(skin.animation_graph, None);
+}
+
+#[test]
+fn a_skin_reads_its_pbr_maps_and_an_overrides_own() {
+    const RMA: &str = "ASSETS/Characters/Ahri/Skins/Skin03/Body_RMA.tex";
+    const NORMAL: &str = "ASSETS/Characters/Ahri/Skins/Skin03/Body_NM.tex";
+    const HAT_RMA: &str = "ASSETS/Characters/Ahri/Skins/Skin03/Hat_RMA.tex";
+    let object = BinObject::builder(h(SKIN), h("SkinCharacterDataProperties"))
+        .property(
+            MESH_PROPERTIES,
+            embedded(
+                "SkinMeshDataProperties",
+                vec![
+                    (
+                        ROUGHNESS_METALLIC_AO_TEXTURE,
+                        values::String::from(RMA).into(),
+                    ),
+                    (NORMAL_MAP_TEXTURE, values::String::from(NORMAL).into()),
+                    (
+                        MATERIAL_OVERRIDE,
+                        values::Container::from(vec![embedded(
+                            "SkinMeshDataProperties_MaterialOverride",
+                            vec![
+                                (SUBMESH, values::String::from("Hat").into()),
+                                (
+                                    ROUGHNESS_METALLIC_AO_TEXTURE,
+                                    values::String::from(HAT_RMA).into(),
+                                ),
+                            ],
+                        )])
+                        .into(),
+                    ),
+                ],
+            ),
+        )
+        .build();
+    let document = document_of(vec![object]);
+
+    let skin = resolve_skin(&document, h(SKIN), &Tables, &Placed, None).unwrap();
+
+    let named = |path: &str| {
+        Some(NamedAsset {
+            path: path.to_owned(),
+            asset: file(path),
+        })
+    };
+    assert_eq!(skin.roughness_metallic_ao_texture, named(RMA));
+    assert_eq!(skin.normal_map_texture, named(NORMAL));
+    assert_eq!(
+        skin.overrides.len(),
+        1,
+        "an override that names only a map is an override"
+    );
+    let hat = &skin.overrides[0];
+    assert_eq!(hat.submesh, "Hat");
+    assert_eq!(hat.texture, None);
+    assert_eq!(hat.roughness_metallic_ao_texture, named(HAT_RMA));
+    assert_eq!(hat.normal_map_texture, None);
 }
 
 #[test]
@@ -1477,4 +1537,173 @@ fn every_child_field_hash_is_its_name() {
             (children, element) => panic!("{list}: {children:?} against {element:?}"),
         }
     }
+}
+
+const OUTLINE_CATEGORY_PATH: &str = "Maps/Shipping/Map453/CharacterOutline";
+const OUTLINE_MATERIAL: &str = "Maps/Shipping/Map453/Materials/CharacterOutline";
+const OVERRIDE_MATERIAL: &str = "Characters/Ahri/Skins/Skin3/Materials/Outline";
+const MAP_BIN: &str = "data/maps/shipping/map453/map453.bin";
+const WHITE: &str = "assets/shared/materials/white.tex";
+
+fn outline_entry(category: &str, submeshes: &str, material: Option<&str>) -> values::Embedded {
+    let mut fields = vec![
+        (
+            OUTLINE_CATEGORY,
+            values::ObjectLink::new(h(category)).into(),
+        ),
+        (OUTLINE_SUBMESHES, values::String::from(submeshes).into()),
+    ];
+    if let Some(material) = material {
+        fields.push((
+            OUTLINE_MATERIAL_OVERRIDE,
+            values::ObjectLink::new(h(material)).into(),
+        ));
+    }
+    embedded("CharacterOutlineSubmeshes", fields)
+}
+
+fn outlined_skin() -> BinObject {
+    BinObject::builder(h(SKIN), h("SkinCharacterDataProperties"))
+        .property(
+            MESH_PROPERTIES,
+            embedded(
+                "SkinMeshDataProperties",
+                vec![(
+                    OUTLINE_CATEGORY_SUBMESHES,
+                    values::Container::from(vec![
+                        outline_entry(OUTLINE_CATEGORY_PATH, "Body Hood,Cape", None),
+                        outline_entry(OUTLINE_CATEGORY_PATH, "Wings", Some(OVERRIDE_MATERIAL)),
+                        outline_entry("Nowhere", "Tail", None),
+                    ])
+                    .into(),
+                )],
+            ),
+        )
+        .build()
+}
+
+fn outline_category() -> BinObject {
+    BinObject::builder(h(OUTLINE_CATEGORY_PATH), h("CharacterOutlineCategory"))
+        .property(MATERIAL, values::ObjectLink::new(h(OUTLINE_MATERIAL)))
+        .build()
+}
+
+/// An outline material with `params`, in the shape the shipped one has.
+fn outline_material(path: &str, params: &[(&str, [f32; 4])]) -> BinObject {
+    let param = |(name, value): &(&str, [f32; 4])| {
+        embedded(
+            "StaticMaterialShaderParamDef",
+            vec![
+                (h("name"), values::String::from(*name).into()),
+                (
+                    h("value"),
+                    values::Vector4::new(glam::Vec4::from(*value)).into(),
+                ),
+            ],
+        )
+    };
+    let sampler = embedded(
+        "StaticMaterialShaderSamplerDef",
+        vec![
+            (
+                h("TextureName"),
+                values::String::from("Outline_Mask").into(),
+            ),
+            (
+                h("texturePath"),
+                values::WadChunkLink::new(WadHash::hash_str(WHITE).0).into(),
+            ),
+        ],
+    );
+    BinObject::builder(h(path), h("StaticMaterialDef"))
+        .property(
+            h("paramValues"),
+            values::Container::from(params.iter().map(param).collect::<Vec<_>>()),
+        )
+        .property(h("samplerValues"), values::Container::from(vec![sampler]))
+        .build()
+}
+
+#[test]
+fn a_skin_reads_its_outline_entries_without_their_materials() {
+    let document = document_of(vec![outlined_skin(), outline_category()]);
+
+    let skin = resolve_skin(&document, h(SKIN), &Tables, &Placed, None).unwrap();
+
+    let read: Vec<(String, Vec<String>)> = skin
+        .outlines
+        .iter()
+        .map(|outline| (outline.category.clone(), outline.submeshes.clone()))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (
+                hex(h(OUTLINE_CATEGORY_PATH)),
+                vec!["Body".into(), "Hood".into(), "Cape".into()]
+            ),
+            (hex(h(OUTLINE_CATEGORY_PATH)), vec!["Wings".into()]),
+            (hex(h("Nowhere")), vec!["Tail".into()]),
+        ]
+    );
+    assert!(
+        skin.outlines
+            .iter()
+            .all(|outline| outline.material.is_none())
+    );
+}
+
+#[test]
+fn reachable_skin_resolves_outline_materials_from_a_declaring_bin() {
+    let open = document_of(vec![outlined_skin()]);
+    let map = file(MAP_BIN).unwrap();
+    let mut read = |asset: &AssetRef| {
+        (*asset == file(MAP_BIN).unwrap()).then(|| {
+            document_of(vec![
+                outline_category(),
+                outline_material(
+                    OUTLINE_MATERIAL,
+                    &[
+                        ("Outline_Color", [0.02, 0.09, 0.05, 1.0]),
+                        ("Outline_Width", [5.0, 0.0, 0.0, 0.0]),
+                        ("Outline_CameraDistanceMod", [4500.0, 0.0, 0.0, 0.0]),
+                        ("Outline_CameraDepthOffset", [-20.0, 0.0, 0.0, 0.0]),
+                    ],
+                ),
+                outline_material(
+                    OVERRIDE_MATERIAL,
+                    &[("Outline_Width", [2.0, 0.0, 0.0, 0.0])],
+                ),
+            ])
+        })
+    };
+
+    let skin = ObjectLookup::new(&open, &Tables, &Placed, None, &mut read)
+        .declared_by(|_| vec![map.clone()])
+        .skin(h(SKIN))
+        .unwrap();
+
+    let body = skin.outlines[0].material.as_ref().unwrap();
+    assert_eq!(body.hash, hex(h(OUTLINE_MATERIAL)));
+    assert_eq!(body.color, [0.02, 0.09, 0.05, 1.0]);
+    assert!((body.width - 5.0).abs() < f32::EPSILON);
+    assert!((body.camera_distance - 4500.0).abs() < f32::EPSILON);
+    assert!((body.depth_offset + 20.0).abs() < f32::EPSILON);
+    assert!((body.alpha - 1.0).abs() < f32::EPSILON);
+    assert_eq!(body.mask_channels, [1.0, 0.0, 0.0, 0.0]);
+    assert!(body.mask.is_some(), "the mask is the material's sampler");
+
+    let wings = skin.outlines[1].material.as_ref().unwrap();
+    assert_eq!(
+        wings.hash,
+        hex(h(OVERRIDE_MATERIAL)),
+        "the override wins over the category"
+    );
+    assert!((wings.width - 2.0).abs() < f32::EPSILON);
+    assert!(
+        (wings.camera_distance - 600.0).abs() < f32::EPSILON,
+        "a parameter the material leaves out takes the shader's default"
+    );
+
+    assert_eq!(skin.outlines[2].material, None);
 }

@@ -17,6 +17,8 @@ import { m } from "@/paraglide/messages";
 import { isAppError } from "@/utils/errors";
 import { formatBytes } from "@/utils/formatBytes";
 
+import { describeRuneforgeError } from "./runeforgeErrors";
+
 /** The copy for one error: what went wrong, the remedy, and any prose from outside the app. */
 export interface ErrorCopy {
   title: string;
@@ -117,6 +119,7 @@ export function describeError(error: AppError): ErrorCopy {
       description: m["error.UNTRUSTED_DOMAIN.description"](),
     }))
     .with({ code: "GITHUB" }, (e) => describeGitHubError(e))
+    .with({ code: "RUNEFORGE" }, ({ error }) => describeRuneforgeError(error))
     .exhaustive();
 }
 

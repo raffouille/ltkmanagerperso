@@ -28,6 +28,9 @@ pub enum Declared {
 /// Reads the bin at an asset, and answers `None` for one it cannot read.
 pub type BinReader<'a> = Box<dyn FnMut(&AssetRef) -> Option<BinDocument> + 'a>;
 
+/// Returns the bins outside the links that may declare an object, in the order to try them.
+pub type DeclaringBins<'a> = Box<dyn FnMut(BinHash) -> Vec<AssetRef> + 'a>;
+
 /// The open bin and the bins it links, read breadth first as a read asks for objects, with the
 /// names, the assets and the shader defs that every object is resolved against.
 ///
@@ -40,6 +43,7 @@ pub struct ObjectLookup<'a> {
     assets: &'a dyn AssetLookup,
     shaders: Option<&'a BinDocument>,
     read: BinReader<'a>,
+    declaring: DeclaringBins<'a>,
     linked: Vec<(AssetRef, BinDocument)>,
     queue: VecDeque<AssetRef>,
     seen: HashSet<AssetRef>,
@@ -63,6 +67,7 @@ impl<'a> ObjectLookup<'a> {
             assets,
             shaders,
             read: Box::new(read),
+            declaring: Box::new(|_| Vec::new()),
             linked: Vec::new(),
             queue: VecDeque::new(),
             seen: HashSet::new(),
@@ -70,6 +75,14 @@ impl<'a> ObjectLookup<'a> {
         };
         lookup.queue_links(open);
         lookup
+    }
+
+    /// Returns the lookup with `declaring`, which [`ObjectLookup::find_anywhere`] asks for
+    /// the bins that may declare an object that no linked bin declares.
+    #[must_use]
+    pub fn declared_by(mut self, declaring: impl FnMut(BinHash) -> Vec<AssetRef> + 'a) -> Self {
+        self.declaring = Box::new(declaring);
+        self
     }
 
     /// Returns the lookup over `open` alone, which reads no linked bin.
@@ -121,6 +134,28 @@ impl<'a> ObjectLookup<'a> {
         while let Some(at) = self.read_next() {
             if wanted(&self.linked[at].1) {
                 return Some(Declared::Linked(at));
+            }
+        }
+        None
+    }
+
+    /// Returns where `entry` is declared, as [`ObjectLookup::find`] does, and else in the first
+    /// bin of [`ObjectLookup::declared_by`] that declares it.
+    ///
+    /// The engine resolves a link against every bin it has loaded, so an object that a map
+    /// bin declares, such as a skin's outline category, is found here and not by
+    /// [`ObjectLookup::find`]. Returns `None` if no bin declares `entry`.
+    pub fn find_anywhere(&mut self, entry: BinHash) -> Option<Declared> {
+        if let Some(found) = self.find(entry) {
+            return Some(found);
+        }
+
+        for asset in (self.declaring)(entry) {
+            let Some(found) = self.bin(asset) else {
+                continue;
+            };
+            if self.document(found).object_at(entry).is_some() {
+                return Some(found);
             }
         }
         None

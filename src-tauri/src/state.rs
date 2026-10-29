@@ -1,5 +1,6 @@
 use fs_err as fs;
 use ltk_manager_base::config::Config;
+use ltk_manager_runeforge::ConnectedAccount;
 use ltk_manager_runtime::diagnostics::store::IncidentStore;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -295,6 +296,11 @@ pub struct Settings {
     /// upgrading user who completed first run releases ago.
     #[serde(default)]
     pub has_seen_diagnostics_notice: bool,
+    /// The RuneForge account of the token in the credential store, or `None` while disconnected.
+    ///
+    /// Only the RuneForge commands write it. `save_settings` keeps the stored value.
+    #[serde(default)]
+    pub runeforge: Option<ConnectedAccount>,
 }
 
 impl Default for Settings {
@@ -330,6 +336,7 @@ impl Default for Settings {
             telemetry_enabled: true,
             telemetry_secret: None,
             has_seen_diagnostics_notice: false,
+            runeforge: None,
         }
     }
 }

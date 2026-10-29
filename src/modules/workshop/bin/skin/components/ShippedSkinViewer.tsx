@@ -26,6 +26,7 @@ import { projectSandbox } from "../../../sandbox/utils/sandboxRef";
 import { Notice } from "../../shared/preview/Notice";
 import { Passes } from "../../vfx/rendering/components/Passes";
 import { skinQueries } from "../api/skinQueries";
+import { useSkinOutlines } from "../hooks/useSkinOutlines";
 import { useSkinPrograms } from "../hooks/useSkinPrograms";
 import { clipFrameSeconds } from "../utils/clipEvents";
 import {
@@ -33,6 +34,8 @@ import {
   openingClip,
   playableClips,
   playlistOf,
+  DATA_TEXTURES,
+  dataTextureAssets,
   textureAssets,
 } from "../utils/skinScene";
 import { Clock } from "./Clock";
@@ -139,11 +142,14 @@ function SkinStage({ document, skin }: { document: BinDocumentId; skin: SkinMode
   const scale = skin.scale ?? 1;
   const assets = useMemo(() => textureAssets(skin), [skin]);
   const textures = useAssetTextures(assets);
+  const dataAssets = useMemo(() => dataTextureAssets(skin), [skin]);
+  const maps = useAssetTextures(dataAssets, DATA_TEXTURES);
   const bindingFor = useCallback(
-    (submesh: string) => bindingOf(skin, textures, submesh),
-    [skin, textures],
+    (submesh: string) => bindingOf(skin, textures, submesh, maps),
+    [skin, textures, maps],
   );
   const programsFor = useSkinPrograms(document, skin, true);
+  const outlineFor = useSkinOutlines(document, skin, true);
   const colors = useSceneColors();
   const bounds = useMemo(
     () => (mesh.data === undefined ? null : meshBounds(mesh.data, skin.hidden, scale)),
@@ -171,6 +177,7 @@ function SkinStage({ document, skin }: { document: BinDocumentId; skin: SkinMode
         clock={clock}
         bindingOf={bindingFor}
         programsOf={programsFor}
+        outlineOf={outlineFor}
         colors={colors}
         hidden={skin.hidden}
         scale={scale}

@@ -33,10 +33,9 @@ impl PathResolver for Knows {
 /// A project directory whose config declares `hashtables`.
 fn project(hashtables: Vec<ModProjectHashtable>) -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("a temp dir");
-    let config = ModProject {
-        hashtables,
-        ..ltk_manager_assets::test_util::mod_project_named("smolder-x")
-    };
+    let mut config = ltk_manager_assets::test_util::mod_project_named("smolder-x");
+    config.hashtables = hashtables;
+
     fs::write(
         dir.path().join("mod.config.json"),
         config

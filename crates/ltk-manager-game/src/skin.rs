@@ -36,6 +36,7 @@ use ltk_manager_bin::bin_document::{
 pub use ltk_manager_bin::bin_document::{NamedAsset, boolean, float, struct_entries};
 
 use crate::lookup::{ObjectLookup, find_linked_materials};
+use crate::material::outline::{OutlineMaterial, linked_outline};
 use crate::material::{MaterialPreview, linked_material};
 use effects::{effect_system, effects_in, persistent_conditions, resolver_systems};
 
@@ -53,6 +54,10 @@ const SKIN_SCALE: BinHash = named("skinScale");
 const SELF_ILLUMINATION: BinHash = named("selfIllumination");
 /// `SkinMeshDataProperties.emissiveTexture`.
 const EMISSIVE_TEXTURE: BinHash = named("emissiveTexture");
+/// `RoughnessMetallicAoTexture`, on the mesh properties and on each material override.
+const ROUGHNESS_METALLIC_AO_TEXTURE: BinHash = named("RoughnessMetallicAoTexture");
+/// `normalMapTexture`, on the mesh properties and on each material override.
+const NORMAL_MAP_TEXTURE: BinHash = named("normalMapTexture");
 /// `SkinMeshDataProperties.initialSubmeshToHide`.
 const HIDDEN_SUBMESHES: BinHash = named("initialSubmeshToHide");
 /// `SkinMeshDataProperties.materialOverride`.
@@ -61,6 +66,14 @@ const MATERIAL_OVERRIDE: BinHash = named("materialOverride");
 const SUBMESH: BinHash = named("submesh");
 /// `Material`, the `StaticMaterialDef` link on the mesh properties and on each override.
 const MATERIAL: BinHash = named("Material");
+/// `SkinMeshDataProperties.OutlineCategorySubmeshes`.
+const OUTLINE_CATEGORY_SUBMESHES: BinHash = named("OutlineCategorySubmeshes");
+/// `CharacterOutlineSubmeshes.category`.
+const OUTLINE_CATEGORY: BinHash = named("category");
+/// `CharacterOutlineSubmeshes.Submeshes`.
+const OUTLINE_SUBMESHES: BinHash = named("Submeshes");
+/// `CharacterOutlineSubmeshes.materialOverride`.
+const OUTLINE_MATERIAL_OVERRIDE: BinHash = named("materialOverride");
 /// `SkinCharacterDataProperties.skinAnimationProperties`.
 const ANIMATION_PROPERTIES: BinHash = named("skinAnimationProperties");
 /// `SkinAnimationProperties.animationGraphData`.
@@ -233,6 +246,13 @@ pub struct SkinModel {
     pub texture: Option<NamedAsset>,
     /// `emissiveTexture`, the emissive mask of a submesh with no material.
     pub emissive_texture: Option<NamedAsset>,
+    /// `RoughnessMetallicAoTexture`, which draws a submesh with no material physically based.
+    ///
+    /// The red channel is roughness, the green channel is metalness and the blue channel is
+    /// ambient occlusion.
+    pub roughness_metallic_ao_texture: Option<NamedAsset>,
+    /// `normalMapTexture`, the tangent-space normal map of a submesh with no material.
+    pub normal_map_texture: Option<NamedAsset>,
     /// The `Material` a submesh draws with where no override names its own.
     pub material: Option<MaterialPreview>,
     /// The submeshes a `materialOverride` gives a texture or a material of their own.
@@ -260,6 +280,46 @@ pub struct SkinModel {
     pub pose_modifiers: Vec<PoseModifier>,
     /// `skinMeshProperties.SocketDefinitions`, in the order the skin lists them.
     pub sockets: Vec<Socket>,
+    /// `skinMeshProperties.OutlineCategorySubmeshes`, in the order the skin lists them.
+    pub outlines: Vec<SkinOutline>,
+}
+
+/// One `OutlineCategorySubmeshes` entry: submeshes that the engine draws an outline around.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "ts", derive(specta::Type))]
+pub struct SkinOutline {
+    /// `category`, the `CharacterOutlineCategory`'s path hash, `0x` and eight hex digits.
+    pub category: String,
+    /// `Submeshes`, apart on spaces and commas.
+    pub submeshes: Vec<String>,
+    /// `materialOverride`, else the category's `Material`. None if neither resolves, and the
+    /// outline is not drawn.
+    pub material: Option<OutlineMaterial>,
+}
+
+/// The links of one `OutlineCategorySubmeshes` entry, before they are resolved.
+struct OutlineLinks {
+    category: Option<BinHash>,
+    material_override: Option<BinHash>,
+    submeshes: Vec<String>,
+}
+
+/// The entries of `OutlineCategorySubmeshes` under `mesh`, in order.
+fn outline_links(mesh: Option<&Fields>) -> Vec<OutlineLinks> {
+    items(mesh.and_then(|mesh| mesh.get(&OUTLINE_CATEGORY_SUBMESHES)))
+        .iter()
+        .filter_map(|item| {
+            let fields = fields_of(Some(item))?;
+            Some(OutlineLinks {
+                category: link(fields.get(&OUTLINE_CATEGORY)),
+                material_override: link(fields.get(&OUTLINE_MATERIAL_OVERRIDE)),
+                submeshes: text(fields.get(&OUTLINE_SUBMESHES))
+                    .map(submesh_names)
+                    .unwrap_or_default(),
+            })
+        })
+        .collect()
 }
 
 /// One submesh a material override gives its own texture or material.
@@ -273,6 +333,10 @@ pub struct SubmeshOverride {
     pub texture: Option<NamedAsset>,
     /// The override's `Material`, which wins over every texture.
     pub material: Option<MaterialPreview>,
+    /// The override's `RoughnessMetallicAoTexture`, in place of the skin's own.
+    pub roughness_metallic_ao_texture: Option<NamedAsset>,
+    /// The override's `normalMapTexture`, in place of the skin's own.
+    pub normal_map_texture: Option<NamedAsset>,
 }
 
 /// An animation graph, as a clip table and a viewport read it.
@@ -547,6 +611,8 @@ pub(crate) fn resolve_skin(
         skeleton: locator.asset(mesh_field(SKELETON)),
         texture: locator.asset(mesh_field(TEXTURE)),
         emissive_texture: locator.asset(mesh_field(EMISSIVE_TEXTURE)),
+        roughness_metallic_ao_texture: locator.asset(mesh_field(ROUGHNESS_METALLIC_AO_TEXTURE)),
+        normal_map_texture: locator.asset(mesh_field(NORMAL_MAP_TEXTURE)),
         material: material(mesh_field(MATERIAL)),
         overrides: items(mesh_field(MATERIAL_OVERRIDE))
             .iter()
@@ -554,14 +620,24 @@ pub(crate) fn resolve_skin(
                 let fields = fields_of(Some(item))?;
                 let texture = locator.asset(fields.get(&TEXTURE));
                 let material = material(fields.get(&MATERIAL));
-                /* An override naming neither draws as no override at all. */
-                if texture.is_none() && material.is_none() {
+                let roughness_metallic_ao_texture =
+                    locator.asset(fields.get(&ROUGHNESS_METALLIC_AO_TEXTURE));
+                let normal_map_texture = locator.asset(fields.get(&NORMAL_MAP_TEXTURE));
+                /* An override naming no texture and no material draws as no override at all. */
+                if texture.is_none()
+                    && material.is_none()
+                    && roughness_metallic_ao_texture.is_none()
+                    && normal_map_texture.is_none()
+                {
                     return None;
                 }
+
                 Some(SubmeshOverride {
                     submesh: text(fields.get(&SUBMESH))?.to_owned(),
                     texture,
                     material,
+                    roughness_metallic_ao_texture,
+                    normal_map_texture,
                 })
             })
             .collect(),
@@ -585,6 +661,14 @@ pub(crate) fn resolve_skin(
             .collect(),
         pose_modifiers: dynamics::pose_modifiers(mesh, &locator),
         sockets: dynamics::sockets(mesh, &locator),
+        outlines: outline_links(mesh)
+            .into_iter()
+            .map(|links| SkinOutline {
+                category: links.category.map_or_else(|| hex(BinHash(0)), hex),
+                submeshes: links.submeshes,
+                material: None,
+            })
+            .collect(),
     })
 }
 
@@ -947,7 +1031,9 @@ impl ObjectLookup<'_> {
     ///
     /// A skin keeps its particle systems and its resolver in the bins it links as often as in
     /// its own. A material or a system that no bin of the lookup declares is skipped: the
-    /// material stays missing, and the key is left out of [`SkinModel::effect_systems`].
+    /// material stays missing, and the key is left out of [`SkinModel::effect_systems`]. An
+    /// outline category and its material are found through [`ObjectLookup::find_anywhere`],
+    /// because a map bin declares them.
     ///
     /// # Errors
     ///
@@ -982,7 +1068,35 @@ impl ObjectLookup<'_> {
             .map(|(key, system)| effect_system(key, system, names))
             .collect();
 
+        let mesh = object_at(open, entry)
+            .ok()
+            .and_then(|skin| fields_of(skin.properties.get(&MESH_PROPERTIES)));
+        for (outline, links) in model.outlines.iter_mut().zip(outline_links(mesh)) {
+            outline.material = self.outline_material(&links);
+        }
+
         Ok(model)
+    }
+
+    /// Reads the material of one outline entry: its `materialOverride`, else its category's
+    /// `Material`. Returns `None` if no bin declares the category or the material.
+    fn outline_material(&mut self, links: &OutlineLinks) -> Option<OutlineMaterial> {
+        let material = match links.material_override {
+            Some(material) => material,
+            None => {
+                let category = links.category?;
+                let found = self.find_anywhere(category)?;
+                let object = self.document(found).object_at(category)?;
+                link(object.properties.get(&MATERIAL))?
+            }
+        };
+
+        let found = self.find_anywhere(material)?;
+        let locator = Locator {
+            names: self.names(),
+            assets: self.assets(),
+        };
+        linked_outline(self.document(found), material, &locator, self.shaders())
     }
 
     /// Resolves the animation graph at `entry` from the first bin of the lookup that declares

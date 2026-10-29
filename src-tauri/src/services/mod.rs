@@ -19,6 +19,7 @@ pub mod news;
 pub mod objects;
 pub mod patcher;
 pub mod preview;
+pub mod runeforge;
 pub mod settings;
 pub(crate) mod shared;
 pub mod workshop;

@@ -1,0 +1,31 @@
+[package]
+name = "ltk-manager-runeforge"
+version = "0.1.0"
+description = "The RuneForge publishing client for LTK Manager"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/LeagueToolkit/ltk-manager"
+publish = false
+
+[features]
+# Derive `specta::Type` on the types that cross IPC, so the Tauri shell can export bindings.
+ts = ["dep:specta", "ltk-manager-base/ts"]
+
+[dependencies]
+ltk-manager-base = { workspace = true }
+
+fs-err = { workspace = true }
+keyring-core = { workspace = true }
+reqwest = { workspace = true, features = ["json"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+specta = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-native-keyring-store = { workspace = true }
+
+[dev-dependencies]
+assert_matches = { workspace = true }
+tempfile = { workspace = true }

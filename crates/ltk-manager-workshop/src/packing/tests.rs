@@ -10,21 +10,11 @@ use std::sync::Arc;
 
 /// A packable project holding `layers`, with `files` written under `content/`.
 fn make_project(dir: &Path, layers: Vec<ModProjectLayer>, files: &[&str]) -> ProjectDir {
-    let mod_project = ModProject {
-        name: "test-mod".to_string(),
-        display_name: "Test Mod".to_string(),
-        version: "1.0.0".to_string(),
-        description: String::new(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers,
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ModProject::default();
+    mod_project.name = "test-mod".to_string();
+    mod_project.display_name = "Test Mod".to_string();
+    mod_project.version = "1.0.0".to_string();
+    mod_project.layers = layers;
     fs::write(
         dir.join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),
@@ -61,23 +51,15 @@ fn pack_as(dir: &Path, format: PackFormat) -> AppResult<PackResult> {
 }
 
 fn make_valid_project(dir: &std::path::Path) {
-    let mod_project = ltk_mod_project::ModProject {
-        name: "test-mod".to_string(),
-        display_name: "Test Mod".to_string(),
-        version: "1.0.0".to_string(),
-        description: "A valid test mod".to_string(),
-        authors: vec![ltk_mod_project::ModProjectAuthor::Name(
-            "Author".to_string(),
-        )],
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: ltk_mod_project::ModProjectLayer::default_table(),
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ltk_mod_project::ModProject::default();
+    mod_project.name = "test-mod".to_string();
+    mod_project.display_name = "Test Mod".to_string();
+    mod_project.version = "1.0.0".to_string();
+    mod_project.description = "A valid test mod".to_string();
+    mod_project.authors = vec![ltk_mod_project::ModProjectAuthor::Name(
+        "Author".to_string(),
+    )];
+    mod_project.layers = ltk_mod_project::ModProjectLayer::default_table();
     fs::write(
         dir.join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),
@@ -112,21 +94,11 @@ fn validate_invalid_config() {
 #[test]
 fn validate_invalid_project_name() {
     let dir = tempfile::tempdir().unwrap();
-    let mod_project = ltk_mod_project::ModProject {
-        name: "BadName".to_string(),
-        display_name: "Bad".to_string(),
-        version: "1.0.0".to_string(),
-        description: "".to_string(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: ltk_mod_project::ModProjectLayer::default_table(),
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ltk_mod_project::ModProject::default();
+    mod_project.name = "BadName".to_string();
+    mod_project.display_name = "Bad".to_string();
+    mod_project.version = "1.0.0".to_string();
+    mod_project.layers = ltk_mod_project::ModProjectLayer::default_table();
     fs::write(
         dir.path().join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),
@@ -142,21 +114,11 @@ fn validate_invalid_project_name() {
 #[test]
 fn validate_invalid_version() {
     let dir = tempfile::tempdir().unwrap();
-    let mod_project = ltk_mod_project::ModProject {
-        name: "test-mod".to_string(),
-        display_name: "Test".to_string(),
-        version: "not-semver".to_string(),
-        description: "".to_string(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: ltk_mod_project::ModProjectLayer::default_table(),
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ltk_mod_project::ModProject::default();
+    mod_project.name = "test-mod".to_string();
+    mod_project.display_name = "Test".to_string();
+    mod_project.version = "not-semver".to_string();
+    mod_project.layers = ltk_mod_project::ModProjectLayer::default_table();
     fs::write(
         dir.path().join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),
@@ -172,21 +134,11 @@ fn validate_invalid_version() {
 #[test]
 fn validate_missing_content_dir() {
     let dir = tempfile::tempdir().unwrap();
-    let mod_project = ltk_mod_project::ModProject {
-        name: "test-mod".to_string(),
-        display_name: "Test".to_string(),
-        version: "1.0.0".to_string(),
-        description: "".to_string(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: ltk_mod_project::ModProjectLayer::default_table(),
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ltk_mod_project::ModProject::default();
+    mod_project.name = "test-mod".to_string();
+    mod_project.display_name = "Test".to_string();
+    mod_project.version = "1.0.0".to_string();
+    mod_project.layers = ltk_mod_project::ModProjectLayer::default_table();
     fs::write(
         dir.path().join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),
@@ -201,21 +153,11 @@ fn validate_missing_content_dir() {
 #[test]
 fn validate_empty_layer_dir_warns() {
     let dir = tempfile::tempdir().unwrap();
-    let mod_project = ltk_mod_project::ModProject {
-        name: "test-mod".to_string(),
-        display_name: "Test".to_string(),
-        version: "1.0.0".to_string(),
-        description: "".to_string(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: ltk_mod_project::ModProjectLayer::default_table(),
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ltk_mod_project::ModProject::default();
+    mod_project.name = "test-mod".to_string();
+    mod_project.display_name = "Test".to_string();
+    mod_project.version = "1.0.0".to_string();
+    mod_project.layers = ltk_mod_project::ModProjectLayer::default_table();
     fs::write(
         dir.path().join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),
@@ -231,21 +173,11 @@ fn validate_empty_layer_dir_warns() {
 #[test]
 fn validate_missing_thumbnail_warns() {
     let dir = tempfile::tempdir().unwrap();
-    let mod_project = ltk_mod_project::ModProject {
-        name: "test-mod".to_string(),
-        display_name: "Test".to_string(),
-        version: "1.0.0".to_string(),
-        description: "".to_string(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: ltk_mod_project::ModProjectLayer::default_table(),
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ltk_mod_project::ModProject::default();
+    mod_project.name = "test-mod".to_string();
+    mod_project.display_name = "Test".to_string();
+    mod_project.version = "1.0.0".to_string();
+    mod_project.layers = ltk_mod_project::ModProjectLayer::default_table();
     fs::write(
         dir.path().join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),
@@ -279,27 +211,17 @@ fn validate_valid_project_passes() {
 #[test]
 fn validate_no_base_layer_warns() {
     let dir = tempfile::tempdir().unwrap();
-    let mod_project = ltk_mod_project::ModProject {
-        name: "test-mod".to_string(),
-        display_name: "Test".to_string(),
-        version: "1.0.0".to_string(),
-        description: "".to_string(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: vec![ltk_mod_project::ModProjectLayer {
-            name: "chroma".to_string(),
-            display_name: Some("Chroma".to_string()),
-            priority: 1,
-            description: None,
-            string_overrides: IndexMap::new(),
-        }],
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ltk_mod_project::ModProject::default();
+    mod_project.name = "test-mod".to_string();
+    mod_project.display_name = "Test".to_string();
+    mod_project.version = "1.0.0".to_string();
+    mod_project.layers = vec![ltk_mod_project::ModProjectLayer {
+        name: "chroma".to_string(),
+        display_name: Some("Chroma".to_string()),
+        priority: 1,
+        description: None,
+        string_overrides: IndexMap::new(),
+    }];
     fs::write(
         dir.path().join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),
@@ -506,4 +428,47 @@ fn a_pattern_that_does_not_compile_fails_validation_with_its_line() {
         "{:?}",
         validation.errors
     );
+}
+
+fn runeforge_stamp() -> ltk_mod_project::ModProjectDistributor {
+    ltk_mod_project::ModProjectDistributor::new(
+        "runeforge".to_owned(),
+        "RuneForge".to_owned(),
+        "https://runeforge.dev".to_owned(),
+        "0b8a3a52-5f4e-4d6e-9a43-2f1c3f7d9e10".to_owned(),
+    )
+}
+
+#[test]
+fn write_distributor_adds_stamp_and_keeps_other_fields() {
+    let dir = tempfile::tempdir().unwrap();
+    make_valid_project(dir.path());
+    let project = ProjectDir::open(dir.path()).unwrap();
+    let before = project.config().unwrap();
+
+    project.write_distributor(runeforge_stamp()).unwrap();
+
+    let after = project.config().unwrap();
+    assert_eq!(after.distributor, Some(runeforge_stamp()));
+    assert_eq!(after.name, before.name);
+    assert_eq!(after.description, before.description);
+    assert_eq!(after.authors, before.authors);
+    assert_eq!(after.layers, before.layers);
+}
+
+#[test]
+fn pack_carries_written_distributor_into_modpkg_metadata() {
+    let dir = tempfile::tempdir().unwrap();
+    make_project(dir.path(), base_layer(), &["base/data/file.bin"])
+        .write_distributor(runeforge_stamp())
+        .unwrap();
+
+    let packed = pack(dir.path()).unwrap();
+
+    let file = fs::File::open(&packed.output_path).unwrap();
+    let mut modpkg = ltk_modpkg::Modpkg::mount_from_reader(file).unwrap();
+    let metadata = modpkg.load_metadata().unwrap();
+    let distributor = metadata.distributor().unwrap();
+    assert_eq!(distributor.site_id, "runeforge");
+    assert_eq!(distributor.mod_id, "0b8a3a52-5f4e-4d6e-9a43-2f1c3f7d9e10");
 }

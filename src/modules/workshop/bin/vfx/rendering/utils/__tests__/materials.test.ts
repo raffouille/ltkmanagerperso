@@ -497,6 +497,7 @@ describe("ARBITRARY_UV", () => {
         skinIndices: null,
         skinWeights: null,
         colors: null,
+        tangents: null,
         indices: new Uint32Array([0, 1, 2]),
         ranges: [],
       },

@@ -4,7 +4,9 @@
 //! every reference resolved rather than a window of rows.
 
 use crate::error::IpcResult;
-use crate::services::shared::document_assets::{parse_entry, read_lookup, read_resolved};
+use crate::services::shared::document_assets::{
+    parse_entry, read_lookup, read_resolved, sandbox_of,
+};
 use crate::services::shared::linked_reader;
 use crate::services::shared::off_thread;
 use ltk_manager_bin::bin_document::BinDocumentId;
@@ -51,7 +53,7 @@ pub async fn vfx_missile_spells(
             let Some(path) = names.entry_name(entry) else {
                 return Ok(Vec::new());
             };
-            let mut read = linked_reader(&app_handle);
+            let mut read = linked_reader(&app_handle, &sandbox_of(&app_handle, Some(document)));
             Ok(missile_spells(open, entry, &path, names, assets, &mut read))
         })
     })

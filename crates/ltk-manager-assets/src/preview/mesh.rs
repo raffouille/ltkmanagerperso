@@ -11,9 +11,9 @@
 //!
 //! ```text
 //! magic        u32   0x474B544C, `LTKG`
-//! version      u32   3
+//! version      u32   4
 //! flags        u32   bit 0 normals present, bit 1 uvs present, bit 2 skin present,
-//!                    bit 3 colors present
+//!                    bit 3 colors present, bit 4 tangents present
 //! vertexCount  u32
 //! indexCount   u32
 //! submeshCount u32
@@ -23,12 +23,14 @@
 //! skinIndices  u8  * vertexCount * 4   only under bit 2
 //! skinWeights  f32 * vertexCount * 4   only under bit 2
 //! colors       u8  * vertexCount * 4   only under bit 3, RGBA
+//! tangents     f32 * vertexCount * 4   only under bit 4, xyz and the bitangent sign w
 //! indices      u32 * indexCount
 //! submeshes    submeshCount * { nameLen u32, name utf8[nameLen], startIndex u32, indexCount u32 }
 //! ```
 //!
 //! A skin index names a shader joint, which is a slot of the `.skl`'s influence table
-//! rather than a joint.
+//! rather than a joint. A tangent is the `.skn`'s `Texcoord6` as stored, and the engine's
+//! bitangent is `w * cross(normal, tangent)`.
 
 use std::io::Cursor;
 
@@ -45,7 +47,7 @@ use super::{PreviewError, count_of};
 const MAGIC: u32 = 0x474B_544C;
 
 /// The layout this module writes.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 /// The `flags` bit under which a normal block follows the positions.
 const HAS_NORMALS: u32 = 1 << 0;
@@ -58,6 +60,9 @@ const HAS_SKIN: u32 = 1 << 2;
 
 /// The `flags` bit under which a colour block follows the skin's.
 const HAS_COLORS: u32 = 1 << 3;
+
+/// The `flags` bit under which a tangent block follows the colours.
+const HAS_TANGENTS: u32 = 1 << 4;
 
 /// The magic this build takes for a `.tmesh`, which no shipped file has attested yet.
 ///
@@ -109,6 +114,8 @@ struct Geometry {
     skin: Option<Skin>,
     /// Four per vertex, RGBA, for a file that colours its vertices.
     colors: Option<Vec<u8>>,
+    /// Four per vertex, for a `.skn` whose vertex layout carries them.
+    tangents: Option<Vec<f32>>,
     indices: Vec<u32>,
     submeshes: Vec<Submesh>,
 }
@@ -148,6 +155,7 @@ impl Geometry {
         let uv = vertices.accessor::<Vec2>(ElementName::Texcoord0);
         let joints = vertices.accessor::<[u8; 4]>(ElementName::BlendIndex);
         let weights = vertices.accessor::<Vec4>(ElementName::BlendWeight);
+        let tangent = vertices.accessor::<Vec4>(ElementName::Texcoord6);
 
         let mut indices = Vec::with_capacity(mesh.index_buffer().count());
         let mut submeshes = Vec::with_capacity(mesh.ranges().len());
@@ -181,6 +189,8 @@ impl Geometry {
                 weights: (0..count).flat_map(|v| weights.get(v).to_array()).collect(),
             }),
             colors: None,
+            tangents: tangent
+                .map(|block| (0..count).flat_map(|v| block.get(v).to_array()).collect()),
             indices,
             submeshes,
         })
@@ -242,6 +252,7 @@ impl Geometry {
             uvs: Some(uvs),
             skin: None,
             colors,
+            tangents: None,
             submeshes,
         })
     }
@@ -305,6 +316,7 @@ impl Geometry {
             uvs: uv.map(|block| (0..count).flat_map(|v| block.get(v).to_array()).collect()),
             skin: None,
             colors: None,
+            tangents: None,
             indices,
             submeshes,
         })
@@ -325,6 +337,9 @@ impl Geometry {
         if self.colors.is_some() {
             flags |= HAS_COLORS;
         }
+        if self.tangents.is_some() {
+            flags |= HAS_TANGENTS;
+        }
 
         let header = [
             MAGIC,
@@ -340,7 +355,12 @@ impl Geometry {
             self.uvs.as_ref(),
         ];
 
-        let floats: usize = blocks.iter().flatten().map(|block| block.len()).sum();
+        let floats: usize = blocks
+            .iter()
+            .flatten()
+            .map(|block| block.len())
+            .sum::<usize>()
+            + self.tangents.as_ref().map_or(0, Vec::len);
         let skin = self
             .skin
             .as_ref()
@@ -365,6 +385,9 @@ impl Geometry {
         }
         if let Some(colors) = &self.colors {
             buffer.extend(colors);
+        }
+        for tangent in self.tangents.iter().flatten() {
+            buffer.extend(tangent.to_le_bytes());
         }
         for index in &self.indices {
             buffer.extend(index.to_le_bytes());

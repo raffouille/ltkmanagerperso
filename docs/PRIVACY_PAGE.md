@@ -85,6 +85,19 @@ changes.
 Events go to PostHog, hosted in the European Union, on a project only the LTK Manager maintainers
 can read. They are used to fix bugs and for nothing else, and are never sold or shared.
 
+## Publishing to RuneForge
+
+LTK Manager sends nothing to RuneForge until you connect an account in Settings. Connecting sends
+your API token to `runeforge.dev` once to check it, and Windows keeps the token in the Credential
+Manager. The token is never written to the settings file, the logs or the diagnostics.
+
+When you publish a project, the manager sends the packed project to RuneForge and the post and
+release fields you confirm in the review. It reads the posts of your account, the game versions
+and the scan result of the uploaded file. The token goes to `runeforge.dev` only. The file itself
+goes to the storage address that RuneForge hands out for the upload, without the token.
+
+Disconnect in Settings deletes the token from this machine.
+
 ### Questions
 
 Open an issue at <https://github.com/LeagueToolkit/ltk-manager/issues>, or ask in the project's

@@ -147,6 +147,7 @@ pub fn run(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(sandboxes.clone());
     app.manage(ltk_manager_assets::hashtables::BinHashTablesState::default());
     app.manage(crate::services::game::ExtractState::default());
+    app.manage(crate::services::runeforge::RuneforgeState::default());
     app.manage(crate::services::objects::ReferenceWalkState::default());
     app.manage(mod_library);
     app.manage(workshop);

@@ -1,3 +1,5 @@
+import { RuneforgeSection } from "@/modules/runeforge";
+
 import { AuthorProfilesSection } from "./AuthorProfilesSection";
 import { ProjectEditorSection } from "./ProjectEditorSection";
 import { SettingsGrid } from "./SettingsGrid";
@@ -9,6 +11,7 @@ export function WorkshopSection() {
       <WorkshopPathSection />
       <ProjectEditorSection />
       <AuthorProfilesSection />
+      <RuneforgeSection />
     </SettingsGrid>
   );
 }

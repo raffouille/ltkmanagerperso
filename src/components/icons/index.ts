@@ -26,6 +26,7 @@ export * from "./RiotClassicDuotoneIcon";
 export * from "./RiotClassicIcon";
 export * from "./RiotIcon";
 export * from "./RitobinIcon";
+export * from "./RuneforgeIcon";
 export * from "./ScuttleIcon";
 export * from "./SearchEmptyPoroIcon";
 export * from "./ShockedPoroDuotoneIcon";

@@ -101,15 +101,14 @@ fn declare_table(root: &std::path::Path, category: ltk_hashtable::Category, path
         ltk_hashtable::Category::Game => ("game.hashes.txt", ltk_hashtable::Algorithm::Xxh64, 64),
         _ => ("binhashes.txt", ltk_hashtable::Algorithm::Fnv1a32, 32),
     };
-    let config = ltk_mod_project::ModProject {
-        hashtables: vec![ltk_mod_project::ModProjectHashtable {
-            path: format!("hashes/{file}"),
-            category,
-            algorithm,
-            bits,
-        }],
-        ..ltk_manager_assets::test_util::mod_project_named("rehash-fixture")
-    };
+    let mut config = ltk_manager_assets::test_util::mod_project_named("rehash-fixture");
+    config.hashtables = vec![ltk_mod_project::ModProjectHashtable {
+        path: format!("hashes/{file}"),
+        category,
+        algorithm,
+        bits,
+    }];
+
     fs::write(
         root.join("mod.config.json"),
         config

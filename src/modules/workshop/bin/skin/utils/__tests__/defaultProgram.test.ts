@@ -47,10 +47,24 @@ function skin(over: Partial<SkinModel> = {}): SkinModel {
     skeleton: null,
     texture: { path: "body.tex", asset: BODY },
     emissiveTexture: null,
+    roughnessMetallicAoTexture: null,
+    normalMapTexture: null,
     material: null,
     overrides: [
-      { submesh: "Cape", texture: { path: "cape.tex", asset: CAPE }, material: null },
-      { submesh: "Eyes", texture: null, material: MATERIAL },
+      {
+        submesh: "Cape",
+        texture: { path: "cape.tex", asset: CAPE },
+        material: null,
+        roughnessMetallicAoTexture: null,
+        normalMapTexture: null,
+      },
+      {
+        submesh: "Eyes",
+        texture: null,
+        material: MATERIAL,
+        roughnessMetallicAoTexture: null,
+        normalMapTexture: null,
+      },
     ],
     hidden: [],
     scale: null,
@@ -61,6 +75,7 @@ function skin(over: Partial<SkinModel> = {}): SkinModel {
     effectSystems: [],
     poseModifiers: [],
     sockets: [],
+    outlines: [],
     ...over,
   };
 }
@@ -104,7 +119,15 @@ describe("drawsDefaultProgram", () => {
       drawsDefaultProgram(
         skin({
           material: MATERIAL,
-          overrides: [{ submesh: "Cape", texture: null, material: null }],
+          overrides: [
+            {
+              submesh: "Cape",
+              texture: null,
+              material: null,
+              roughnessMetallicAoTexture: null,
+              normalMapTexture: null,
+            },
+          ],
         }),
       ),
     ).toBe(true);
@@ -155,5 +178,11 @@ describe("defaultProgramOf", () => {
         "Body",
       ),
     ).toBeNull();
+  });
+
+  it("draws nothing for a submesh whose skin names a roughness map", () => {
+    const pbr = skin({ roughnessMetallicAoTexture: { path: "body_rma.tex", asset: BODY } });
+
+    expect(defaultProgramOf(pbr, LIT_UBER, textures, "Body")).toBeNull();
   });
 });

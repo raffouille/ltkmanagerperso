@@ -550,21 +550,10 @@ fn adopt_meta_files(dir: &Path) -> AppResult<()> {
 }
 
 fn blank_project() -> ModProject {
-    ModProject {
-        name: String::new(),
-        display_name: String::new(),
-        version: "1.0.0".to_string(),
-        description: String::new(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: ModProjectLayer::default_table(),
-        thumbnail: None,
-        hashtables: Vec::new(),
-    }
+    let mut project = ModProject::default();
+    project.version = "1.0.0".to_string();
+    project.layers = ModProjectLayer::default_table();
+    project
 }
 
 #[cfg(test)]

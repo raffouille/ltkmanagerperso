@@ -3,6 +3,7 @@ import { type ReactNode, useEffect } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
 import { ChromeGround, PageInset } from "@/components";
+import { RuneforgeDialogs } from "@/modules/runeforge";
 import {
   ProjectProvider,
   RouteSandboxProvider,
@@ -74,6 +75,7 @@ function WorkshopShell() {
         </div>
 
         <WorkshopDialogs />
+        <RuneforgeDialogs />
       </RouteSandboxProvider>
     </ProjectProvider>
   );

@@ -159,6 +159,8 @@ export function skin(over: Partial<SkinModel> = {}): SkinModel {
     skeleton: null,
     texture: null,
     emissiveTexture: null,
+    roughnessMetallicAoTexture: null,
+    normalMapTexture: null,
     material: null,
     overrides: [],
     hidden: [],
@@ -170,6 +172,7 @@ export function skin(over: Partial<SkinModel> = {}): SkinModel {
     effectSystems: [],
     poseModifiers: [],
     sockets: [],
+    outlines: [],
     ...over,
   };
 }

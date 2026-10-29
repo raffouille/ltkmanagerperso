@@ -15,6 +15,7 @@ governs the `crates/ltk-manager-*` crates, whose `AGENTS.md` files point here.
 | `crates/ltk-manager-problems` | The Problems rules and their repairs                    | base, assets, workshop, bin | `GPL-3.0-or-later`  |
 | `crates/ltk-manager-library`  | The mod library and the overlay built from it           | problems and what it takes  | `GPL-3.0-or-later`  |
 | `crates/ltk-manager-core`     | A patching session, install links and the release feeds | library, runtime            | `GPL-3.0-or-later`  |
+| `crates/ltk-manager-runeforge` | The RuneForge API client and the token store          | base                        | `GPL-3.0-or-later`  |
 | `crates/ltk-manager-game`     | What League's own classes mean                          | bin, assets, base, hexshade | `GPL-3.0-or-later`  |
 | `crates/hexshade`             | The game's shaders as GLSL                              | `dxbc-spirv-sys`            | `GPL-3.0-or-later`  |
 | `crates/atlas`                | The game's UI views, for Atlas                          | game, bin, assets, hexshade | `GPL-3.0-or-later`  |

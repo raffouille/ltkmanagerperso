@@ -156,38 +156,26 @@ mod tests {
     use std::path::PathBuf;
 
     fn make_test_mod_config_json() -> String {
-        serde_json::to_string_pretty(&ltk_mod_project::ModProject {
-            name: "test-mod".to_string(),
-            display_name: "Test Mod".to_string(),
-            version: "1.0.0".to_string(),
-            description: "A test mod".to_string(),
-            authors: vec![ltk_mod_project::ModProjectAuthor::Name(
-                "Author".to_string(),
-            )],
-            license: None,
-            tags: Vec::new(),
-            champions: vec!["Aatrox".to_string()],
-            maps: Vec::new(),
-            transformers: Vec::new(),
-            layers: ltk_mod_project::ModProjectLayer::default_table(),
-            thumbnail: None,
-            hashtables: Vec::new(),
-        })
-        .unwrap()
+        let mut project = ltk_mod_project::ModProject::default();
+        project.name = "test-mod".to_string();
+        project.display_name = "Test Mod".to_string();
+        project.version = "1.0.0".to_string();
+        project.description = "A test mod".to_string();
+        project.authors = vec![ltk_mod_project::ModProjectAuthor::Name(
+            "Author".to_string(),
+        )];
+        project.champions = vec!["Aatrox".to_string()];
+        project.layers = ltk_mod_project::ModProjectLayer::default_table();
+
+        serde_json::to_string_pretty(&project).unwrap()
     }
 
     fn make_test_fantome_zip(dir: &Path, include_thumbnail: bool, include_readme: bool) -> PathBuf {
-        let info = ltk_fantome::FantomeInfo {
-            name: "Test Mod".to_string(),
-            author: "Author".to_string(),
-            version: "1.0.0".to_string(),
-            description: "Description".to_string(),
-            license: None,
-            tags: Vec::new(),
-            champions: Vec::new(),
-            maps: Vec::new(),
-            ..Default::default()
-        };
+        let mut info = ltk_fantome::FantomeInfo::default();
+        info.name = "Test Mod".to_string();
+        info.author = "Author".to_string();
+        info.version = "1.0.0".to_string();
+        info.description = "Description".to_string();
 
         let zip_path = dir.join("test.fantome");
         let file = fs::File::create(&zip_path).unwrap();
@@ -272,22 +260,12 @@ mod tests {
         let mods_dir = storage.path().mods_dir().join(id);
         fs::create_dir_all(&mods_dir).unwrap();
 
-        let config = serde_json::to_string_pretty(&ltk_mod_project::ModProject {
-            name: "test-mod".to_string(),
-            display_name: "Test Mod".to_string(),
-            version: "1.0.0".to_string(),
-            description: "".to_string(),
-            authors: Vec::new(),
-            license: None,
-            tags: Vec::new(),
-            champions: Vec::new(),
-            maps: Vec::new(),
-            transformers: Vec::new(),
-            layers: ltk_mod_project::ModProjectLayer::default_table(),
-            thumbnail: None,
-            hashtables: Vec::new(),
-        })
-        .unwrap();
+        let mut project = ltk_mod_project::ModProject::default();
+        project.name = "test-mod".to_string();
+        project.display_name = "Test Mod".to_string();
+        project.version = "1.0.0".to_string();
+        project.layers = ltk_mod_project::ModProjectLayer::default_table();
+        let config = serde_json::to_string_pretty(&project).unwrap();
         fs::write(mods_dir.join("mod.config.json"), config).unwrap();
 
         let entry = make_slugged_entry(id, id, ModArchiveFormat::Fantome);

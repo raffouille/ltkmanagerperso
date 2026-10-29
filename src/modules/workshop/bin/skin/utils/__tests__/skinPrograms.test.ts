@@ -52,10 +52,24 @@ function skin(): SkinModel {
     skeleton: null,
     texture: null,
     emissiveTexture: null,
+    roughnessMetallicAoTexture: null,
+    normalMapTexture: null,
     material: preview(BODY),
     overrides: [
-      { submesh: "Eyes", texture: null, material: preview(EYES) },
-      { submesh: "Ghost", texture: null, material: preview("0x0000dead", true) },
+      {
+        submesh: "Eyes",
+        texture: null,
+        material: preview(EYES),
+        roughnessMetallicAoTexture: null,
+        normalMapTexture: null,
+      },
+      {
+        submesh: "Ghost",
+        texture: null,
+        material: preview("0x0000dead", true),
+        roughnessMetallicAoTexture: null,
+        normalMapTexture: null,
+      },
     ],
     hidden: [],
     scale: null,
@@ -66,6 +80,7 @@ function skin(): SkinModel {
     effectSystems: [],
     poseModifiers: [],
     sockets: [],
+    outlines: [],
   };
 }
 

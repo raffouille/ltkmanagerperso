@@ -139,3 +139,37 @@ fn bin_reads_named_bin_and_queues_its_links() {
     assert_eq!(lookup.bin(file("skin.bin")), Some(skin));
     assert_eq!(lookup.asset(orb), Some(&file("particles.bin")));
 }
+
+#[test]
+fn find_anywhere_reads_declaring_bins_after_links() {
+    let open = bin(&[], &["a.bin"]);
+    let mut disk = Disk::new(&[
+        ("a.bin", &["Linked"], &[]),
+        ("empty.bin", &[], &[]),
+        ("map.bin", &["Category"], &[]),
+    ]);
+    let mut read = |asset: &AssetRef| disk.read(asset);
+    let mut asked = Vec::new();
+    let mut lookup = ObjectLookup::new(&open, &(), &Files, None, &mut read).declared_by(|entry| {
+        asked.push(entry);
+        vec![file("empty.bin"), file("map.bin")]
+    });
+
+    let linked = lookup.find_anywhere(h("Linked")).unwrap();
+    let category = lookup.find_anywhere(h("Category")).unwrap();
+
+    assert_eq!(lookup.asset(linked), Some(&file("a.bin")));
+    assert_eq!(lookup.asset(category), Some(&file("map.bin")));
+    assert_eq!(lookup.find(h("Category")), Some(category));
+    assert_eq!(lookup.find_anywhere(h("Nowhere")), None);
+    drop(lookup);
+    assert_eq!(asked, [h("Category"), h("Nowhere")]);
+}
+
+#[test]
+fn find_anywhere_answers_none_without_declaring_bins() {
+    let open = bin(&[], &[]);
+    let mut lookup = ObjectLookup::single(&open, &(), &Files, None);
+
+    assert_eq!(lookup.find_anywhere(h("Category")), None);
+}

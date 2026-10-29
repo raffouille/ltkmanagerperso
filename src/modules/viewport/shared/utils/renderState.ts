@@ -8,6 +8,7 @@ import {
   type Material,
   type MeshBasicMaterial,
   type MeshLambertMaterial,
+  type MeshStandardMaterial,
   NormalBlending,
   OneMinusSrcAlphaFactor,
   OneMinusSrcColorFactor,
@@ -18,8 +19,8 @@ import {
 
 import type { Blending, RenderState } from "@/lib/tauri";
 
-/** The stock material of each shading model, both of which take the same slots. */
-export type SubmeshMaterial = MeshBasicMaterial | MeshLambertMaterial;
+/** The stock material of each shading model, all of which take the same slots. */
+export type SubmeshMaterial = MeshBasicMaterial | MeshLambertMaterial | MeshStandardMaterial;
 
 /**
  * The blend mode each class reaches three.js as.

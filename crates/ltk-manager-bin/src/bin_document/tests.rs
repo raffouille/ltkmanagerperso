@@ -380,15 +380,13 @@ fn project_naming(path: &str) -> tempfile::TempDir {
     use fs_err as fs;
 
     let dir = tempfile::tempdir().unwrap();
-    let manifest = ltk_mod_project::ModProject {
-        hashtables: vec![ltk_mod_project::ModProjectHashtable {
-            path: "hashes/binentries.hashes.txt".to_owned(),
-            category: ltk_hashtable::Category::BinEntries,
-            algorithm: ltk_hashtable::Algorithm::Fnv1a32,
-            bits: 32,
-        }],
-        ..ltk_manager_assets::test_util::mod_project_named("probe")
-    };
+    let mut manifest = ltk_manager_assets::test_util::mod_project_named("probe");
+    manifest.hashtables = vec![ltk_mod_project::ModProjectHashtable {
+        path: "hashes/binentries.hashes.txt".to_owned(),
+        category: ltk_hashtable::Category::BinEntries,
+        algorithm: ltk_hashtable::Algorithm::Fnv1a32,
+        bits: 32,
+    }];
 
     fs::write(
         dir.path().join("mod.config.json"),

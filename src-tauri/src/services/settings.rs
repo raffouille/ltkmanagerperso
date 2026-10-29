@@ -53,6 +53,7 @@ pub(crate) fn save_settings_inner(
     let (secret, _) = crate::telemetry::ensure_secret(&mut settings);
     let (was_collecting, had_file_types, had_beta_patcher, had_builtin_mods) = {
         let current = state.0.lock();
+        settings.runeforge = current.runeforge.clone();
         (
             current.telemetry_enabled,
             current.register_file_types,

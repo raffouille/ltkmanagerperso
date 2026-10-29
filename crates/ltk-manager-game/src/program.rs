@@ -328,11 +328,11 @@ impl ObjectLookup<'_> {
         }
     }
 
-    /// Reads the programs of `targets`, one for one and in that order, each from the first bin
-    /// of the lookup that declares its entry.
+    /// Reads the programs of `targets`, one for one and in that order, each from the bin that
+    /// [`ObjectLookup::find_anywhere`] finds its entry in.
     ///
-    /// The answer is none where no bin of the lookup declares the entry or an embedded path
-    /// reaches no struct. `read` answers asset bytes as [`read_programs`] reads them.
+    /// The answer is none where no bin declares the entry or an embedded path reaches no
+    /// struct. `read` answers asset bytes as [`read_programs`] reads them.
     pub fn programs(
         &mut self,
         targets: &[ProgramTarget],
@@ -342,7 +342,7 @@ impl ObjectLookup<'_> {
     ) -> Vec<Option<MaterialProgram>> {
         let places: Vec<Option<Declared>> = targets
             .iter()
-            .map(|target| self.find(target.entry()))
+            .map(|target| self.find_anywhere(target.entry()))
             .collect();
         let mut bins: Vec<Declared> = Vec::new();
         for found in places.iter().flatten() {

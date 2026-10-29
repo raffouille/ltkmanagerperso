@@ -50,6 +50,7 @@ pub enum ErrorKind {
     BinDocument,
     Overlay,
     UntrustedDomain,
+    Runeforge,
 }
 
 /// Which way an overlay build failed, as the remedy a consumer picks between.

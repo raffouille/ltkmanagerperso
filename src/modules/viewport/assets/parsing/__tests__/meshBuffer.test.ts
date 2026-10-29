@@ -12,6 +12,7 @@ interface Held {
   skinIndices?: number[];
   skinWeights?: number[];
   colors?: number[];
+  tangents?: number[];
   indices: number[];
   ranges?: { name: string; startIndex: number; indexCount: number }[];
   version?: number;
@@ -33,6 +34,7 @@ function buffer(held: Held): ArrayBuffer {
     (held.skinIndices?.length ?? 0) +
     (held.skinWeights?.length ?? 0) * 4 +
     (held.colors?.length ?? 0) +
+    (held.tangents?.length ?? 0) * 4 +
     held.indices.length * 4 +
     names.reduce((sum, name) => sum + 12 + name.length, 0);
 
@@ -54,7 +56,13 @@ function buffer(held: Held): ArrayBuffer {
 
   u32(held.magic ?? MAGIC);
   u32(held.version ?? 3);
-  u32((held.normals ? 1 : 0) | (held.uvs ? 2 : 0) | (skinned ? 4 : 0) | (held.colors ? 8 : 0));
+  u32(
+    (held.normals ? 1 : 0) |
+      (held.uvs ? 2 : 0) |
+      (skinned ? 4 : 0) |
+      (held.colors ? 8 : 0) |
+      (held.tangents ? 16 : 0),
+  );
   u32(vertexCount);
   u32(held.indices.length);
   u32(ranges.length);
@@ -65,6 +73,7 @@ function buffer(held: Held): ArrayBuffer {
   for (const value of held.skinIndices ?? []) u8(value);
   for (const value of held.skinWeights ?? []) f32(value);
   for (const value of held.colors ?? []) u8(value);
+  for (const value of held.tangents ?? []) f32(value);
   for (const value of held.indices) u32(value);
 
   ranges.forEach((range, slot) => {
@@ -94,7 +103,22 @@ describe("readMeshBuffer", () => {
     expect(mesh.skinIndices).toBeNull();
     expect(mesh.skinWeights).toBeNull();
     expect(mesh.colors).toBeNull();
+    expect(mesh.tangents).toBeNull();
     expect(mesh.ranges).toEqual([]);
+  });
+
+  it("reads each vertex's tangent and sign under the tangent flag, after the colours", () => {
+    const mesh = readMeshBuffer(
+      buffer({
+        ...TRIANGLE,
+        version: 4,
+        colors: [255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255],
+        tangents: [1, 0, 0, 1, 0, 0, 1, -1, 0, 1, 0, 1],
+      }),
+    );
+
+    expect([...(mesh.tangents ?? [])]).toEqual([1, 0, 0, 1, 0, 0, 1, -1, 0, 1, 0, 1]);
+    expect([...mesh.indices]).toEqual([0, 1, 2]);
   });
 
   it("reads each vertex's colour under the colour flag, ahead of the indices", () => {
@@ -192,7 +216,7 @@ describe("readMeshBuffer", () => {
   });
 
   it("refuses a version this build does not read", () => {
-    expect(() => readMeshBuffer(buffer({ ...TRIANGLE, version: 4 }))).toThrow(BufferError);
+    expect(() => readMeshBuffer(buffer({ ...TRIANGLE, version: 5 }))).toThrow(BufferError);
   });
 
   it("refuses a buffer shorter than its own header", () => {

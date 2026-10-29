@@ -20,6 +20,8 @@ accepted = [
     "CC0-1.0",
     "Unicode-3.0",
     "MPL-2.0",
+    # libbz2-rs-sys, through the zip that ltk_fantome reads archives with. A BSD-style license.
+    "bzip2-1.0.6",
     # The workspace crates, which cargo-about lists alongside their dependencies
     "GPL-3.0-or-later",
     "AGPL-3.0-or-later",

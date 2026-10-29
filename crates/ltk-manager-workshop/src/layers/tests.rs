@@ -4,21 +4,11 @@ use super::*;
 use ltk_manager_base::error::AppError;
 
 fn make_project_with_layers(dir: &std::path::Path, layers: Vec<ModProjectLayer>) {
-    let mod_project = ltk_mod_project::ModProject {
-        name: "test-mod".to_string(),
-        display_name: "Test Mod".to_string(),
-        version: "1.0.0".to_string(),
-        description: "".to_string(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers,
-        thumbnail: None,
-        hashtables: Vec::new(),
-    };
+    let mut mod_project = ltk_mod_project::ModProject::default();
+    mod_project.name = "test-mod".to_string();
+    mod_project.display_name = "Test Mod".to_string();
+    mod_project.version = "1.0.0".to_string();
+    mod_project.layers = layers;
     fs::write(
         dir.join("mod.config.json"),
         serde_json::to_string_pretty(&mod_project).unwrap(),

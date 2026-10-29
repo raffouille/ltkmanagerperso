@@ -13,6 +13,7 @@ import { commandNames as news } from "@/lib/ipc/news";
 import { commandNames as objects } from "@/lib/ipc/objects";
 import { commandNames as patcher } from "@/lib/ipc/patcher";
 import { commandNames as preview } from "@/lib/ipc/preview";
+import { commandNames as runeforge } from "@/lib/ipc/runeforge";
 import { commandNames as settings } from "@/lib/ipc/settings";
 import { commandNames as workshop } from "@/lib/ipc/workshop";
 
@@ -37,6 +38,7 @@ export const commandNames = {
   objects,
   patcher,
   preview,
+  runeforge,
   settings,
   workshop,
 } as const;

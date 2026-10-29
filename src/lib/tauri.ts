@@ -34,6 +34,7 @@ import { commands as news } from "@/lib/ipc/news";
 import { commands as objects } from "@/lib/ipc/objects";
 import { commands as patcher } from "@/lib/ipc/patcher";
 import { commands as preview } from "@/lib/ipc/preview";
+import { commands as runeforge } from "@/lib/ipc/runeforge";
 import { commands as settings } from "@/lib/ipc/settings";
 import { commands as workshop } from "@/lib/ipc/workshop";
 import { map as mapResult } from "@/utils/result";
@@ -70,6 +71,14 @@ export type {
   StoredVerdict_Serialize as StoredVerdict,
   Verdict_Serialize as Verdict,
 } from "@/lib/bindings";
+/* A request type is one the frontend builds and a command reads, so its deserialize side takes the
+plain name. */
+export type {
+  NewMod_Deserialize as NewMod,
+  NewRelease_Deserialize as NewRelease,
+  PublishAnswer_Deserialize as PublishAnswer,
+  PublishRequest_Deserialize as PublishRequest,
+} from "@/lib/bindings";
 export type { Result } from "@/utils/result";
 
 /** A project's metadata and the project it is written to. */
@@ -92,6 +101,22 @@ export const api = {
   listReleases: news.listReleases,
   listAnnouncements: news.listAnnouncements,
   listNotices: news.listNotices,
+
+  // The RuneForge account and the publish of a project to it.
+  runeforge: {
+    status: runeforge.runeforgeStatus,
+    connect: runeforge.runeforgeConnect,
+    disconnect: runeforge.runeforgeDisconnect,
+    ownedMods: runeforge.runeforgeOwnedMods,
+    context: runeforge.runeforgeContext,
+    prepare: runeforge.runeforgePrepare,
+    cancel: runeforge.runeforgeCancel,
+    prefill: runeforge.runeforgePrefill,
+    discard: runeforge.runeforgeDiscard,
+    submit: runeforge.runeforgeSubmit,
+    publish: runeforge.runeforgePublish,
+    release: runeforge.runeforgeRelease,
+  },
 
   // Settings
   getSettings: settings.getSettings,

@@ -25,7 +25,7 @@ fn builder() -> Builder<Wry> {
     use ltk_manager_runtime::diagnostics::incident::Incident;
 
     use crate::patcher::thread::{GameAttachedPayload, GameOverlayPayload, WadScanFailedPayload};
-    use ltk_manager_base::events::ProtocolInstallProgress;
+    use ltk_manager_base::events::{ProtocolInstallProgress, RuneforgePublishProgress};
     use ltk_manager_core::deep_link::{DeepLinkInstallRequest, DeepLinkSettingsRequest};
 
     /* A 64-bit integer crosses as a JS number. None reaches the range where that loses
@@ -58,6 +58,7 @@ fn builder() -> Builder<Wry> {
         .typ::<DeepLinkInstallRequest>()
         .typ::<DeepLinkSettingsRequest>()
         .typ::<ProtocolInstallProgress>()
+        .typ::<RuneforgePublishProgress>()
         .typ::<GameAttachedPayload>()
         .typ::<GameOverlayPayload>()
         .typ::<WadScanFailedPayload>()

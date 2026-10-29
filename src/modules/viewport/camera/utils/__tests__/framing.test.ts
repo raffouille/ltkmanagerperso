@@ -60,6 +60,7 @@ const ARMED: MeshGeometry = {
   skinIndices: null,
   skinWeights: null,
   colors: null,
+  tangents: null,
   indices: Uint32Array.of(0, 1, 2, 3, 3, 3),
   ranges: [
     { name: "Body", startIndex: 0, indexCount: 3 },

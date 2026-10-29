@@ -97,21 +97,13 @@ impl Workshop {
             .map(ModProjectAuthor::Name)
             .collect();
 
-        let mod_project = ModProject {
-            name: args.name.clone(),
-            display_name: args.display_name,
-            version: "1.0.0".to_string(),
-            description: args.description,
-            authors,
-            license: None,
-            tags: Vec::new(),
-            champions: Vec::new(),
-            maps: Vec::new(),
-            transformers: Vec::new(),
-            layers: ModProjectLayer::default_table(),
-            thumbnail: None,
-            hashtables: Vec::new(),
-        };
+        let mut mod_project = ModProject::default();
+        mod_project.name = args.name.clone();
+        mod_project.display_name = args.display_name;
+        mod_project.version = "1.0.0".to_string();
+        mod_project.description = args.description;
+        mod_project.authors = authors;
+        mod_project.layers = ModProjectLayer::default_table();
 
         let config_path = project_dir.join("mod.config.json");
         let config_content = serde_json::to_string_pretty(&mod_project)?;

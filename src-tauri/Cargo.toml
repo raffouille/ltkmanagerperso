@@ -1,6 +1,6 @@
 [package]
 name = "ltk-manager"
-version = "1.30.5"
+version = "1.31.1"
 description = "LeagueToolkit Mod Manager - Desktop app for managing League of Legends mods"
 edition = "2021"
 license = "GPL-3.0-or-later"
@@ -38,11 +38,13 @@ ltk-manager-core = { path = "../crates/ltk-manager-core", features = ["ts"] }
 ltk-manager-game = { path = "../crates/ltk-manager-game", features = ["ts"] }
 ltk-manager-library = { path = "../crates/ltk-manager-library", features = ["ts"] }
 ltk-manager-problems = { path = "../crates/ltk-manager-problems", features = ["ts"] }
+ltk-manager-runeforge = { path = "../crates/ltk-manager-runeforge", features = ["ts"] }
 ltk-manager-runtime = { path = "../crates/ltk-manager-runtime", features = ["ts"] }
 ltk-manager-workshop = { path = "../crates/ltk-manager-workshop", features = ["ts"] }
 ltk-telemetry = { workspace = true }
 
 ltk_mod_core = { version = "0.1.1" }
+ltk_mod_project = { workspace = true }
 ltk_overlay = { workspace = true }
 ltk_file = { workspace = true }
 ltk_game_data = { workspace = true }

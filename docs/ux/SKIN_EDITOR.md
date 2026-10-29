@@ -14,6 +14,7 @@ the plan of the pose modifiers and sockets is docs/plans/pose-dynamics-preview.m
 
 | Date       | Change                                                                   |
 | ---------- | ------------------------------------------------------------------------ |
+| 2026-10-28 | Draw a skin's character inking in the preview                            |
 | 2026-10-22 | Add the Conditions section, and apply a condition in the preview         |
 | 2026-10-15 | Add, rebone and remove idle effects in the VFX section                   |
 | 2026-10-04 | Add the Skeleton and Physics panes, and simulate a skin's pose modifiers |
@@ -67,6 +68,18 @@ and four switches under them: Particles, Event effects, Structures and props, an
 plays the map's placed systems. Event effects adds the systems an event shows, such as the Hall
 of Legends banners, and stays off until Particles is on. Every switch but Event effects starts
 on, and each is kept with the preview's other display settings.
+
+**The preview draws a skin's character inking.** Each submesh that an
+`OutlineCategorySubmeshes` entry names gets an outline, drawn with the entry's
+`materialOverride`, else its category's `Material`. The game draws the outline only in a mode
+whose `ConfigsClient` lists an object of class `0xb9ce95d8`, such as Map453's. The preview has no
+mode, and almost every shipped skin that names a category is built for a mode that draws it, so the
+preview draws the outline whenever the skin names one. The category and its material are declared
+in a map bin, which the skin does not link, so the read finds them through the object index, or in
+the target of the project's module that creates them. With game shaders on, the outline draws with
+`Jade_CharacterOutline` translated. Otherwise a stock material draws the same shell from the
+material's width, colour, mask, camera distance and depth offset. The outline draws in the Lit view
+alone. The death fade of the material's `dynamicMaterial` is not drawn.
 
 **The inspector and the character point at each other.** The pointer on a material override
 dims every submesh but the one it dresses, and a click on the character dims the same way and

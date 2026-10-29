@@ -55,7 +55,8 @@ impl From<std::io::Error> for SettingsBackupError {
 
 /// Writes `settings` to a backup file at `path`.
 ///
-/// The diagnostics secret is left out, so a restore on another machine keeps its own identity.
+/// The diagnostics secret and the RuneForge account are left out, so a restore on another machine
+/// keeps its own identity and its own connection.
 ///
 /// # Errors
 ///
@@ -63,6 +64,7 @@ impl From<std::io::Error> for SettingsBackupError {
 pub fn export(settings: &Settings, path: &Path) -> Result<(), SettingsBackupError> {
     let mut settings = settings.clone();
     settings.telemetry_secret = None;
+    settings.runeforge = None;
 
     let envelope = Envelope {
         format: FORMAT.to_owned(),
@@ -118,6 +120,7 @@ fn merge(current: &Settings, backup: Value) -> Result<Settings, SettingsBackupEr
 
     restored.config.mod_storage_path = current.config.mod_storage_path.clone();
     restored.telemetry_secret = current.telemetry_secret.clone();
+    restored.runeforge = current.runeforge.clone();
     restored.first_run_complete = current.first_run_complete;
     restored.migration_dismissed = current.migration_dismissed;
     restored.has_seen_hdd_warning = current.has_seen_hdd_warning;

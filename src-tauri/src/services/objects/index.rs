@@ -88,6 +88,16 @@ pub async fn warm_object_index(app_handle: AppHandle) -> IpcResult<()> {
     .await
 }
 
+/// Returns the object index, built on the calling thread if nothing has built it. Returns
+/// `None` if another thread is building it or the build fails.
+pub(crate) fn ready_object_index(app: &AppHandle) -> Option<Arc<ObjectIndex>> {
+    warm(app);
+    match app.state::<ObjectIndexState>().snapshot() {
+        ObjectIndexSnapshot::Ready(index) => Some(index),
+        _ => None,
+    }
+}
+
 /// Build the object index on the calling thread, unless one is built or building.
 fn warm(app: &AppHandle) {
     let config = app.state::<SettingsState>().config();

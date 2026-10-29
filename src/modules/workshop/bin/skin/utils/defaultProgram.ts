@@ -1,7 +1,7 @@
 import type { AssetRef, PassProgram, SkinModel } from "@/lib/tauri";
 import type { SubmeshProgram } from "@/modules/viewport";
 
-import { submeshMaterial } from "./skinScene";
+import { drawsPbr, submeshMaterial } from "./skinScene";
 
 /** The colour texture `LIT_UBER` samples, as the pass read names it. */
 export const DEFAULT_DIFFUSE = "DIFFUSE_MAP";
@@ -41,9 +41,9 @@ export function defaultProgramAssets(skin: SkinModel): Map<string, AssetRef> {
  * The engine's default program for a `submesh` its skin names no material for, with the
  * submesh's colour texture and the skin's emissive texture.
  *
- * Null for a submesh a material covers, and while `program` is unread or untranslated.
- * Each colour texture gets a separate material. A program material binds one texture
- * per name.
+ * Null for a submesh a material covers, for one `drawsPbr` holds for, which the stock
+ * physically based material draws, and while `program` is unread or untranslated. Each
+ * colour texture gets a separate material. A program material binds one texture per name.
  */
 export function defaultProgramOf<T>(
   skin: SkinModel,
@@ -52,7 +52,7 @@ export function defaultProgramOf<T>(
   submesh: string,
 ): SubmeshProgram<T> | null {
   if (program === null || program.program.kind !== "ready") return null;
-  if (submeshMaterial(skin, submesh) !== null) return null;
+  if (submeshMaterial(skin, submesh) !== null || drawsPbr(skin, submesh)) return null;
 
   const key = textures.has(overrideKey(submesh)) ? overrideKey(submesh) : BASE_KEY;
   const bound = new Map<string, T>();

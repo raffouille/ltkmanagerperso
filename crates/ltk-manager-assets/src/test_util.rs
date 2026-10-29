@@ -10,21 +10,12 @@ use ltk_manager_base::config::Config;
 /// A project config whose `name` and display name are both `name`, so a slug
 /// derived from it is predictable.
 pub fn mod_project_named(name: &str) -> ltk_mod_project::ModProject {
-    ltk_mod_project::ModProject {
-        name: name.to_string(),
-        display_name: name.to_string(),
-        version: "1.0.0".to_string(),
-        description: String::new(),
-        authors: Vec::new(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        transformers: Vec::new(),
-        layers: ltk_mod_project::ModProjectLayer::default_table(),
-        thumbnail: None,
-        hashtables: Vec::new(),
-    }
+    let mut project = ltk_mod_project::ModProject::default();
+    project.name = name.to_string();
+    project.display_name = name.to_string();
+    project.version = "1.0.0".to_string();
+    project.layers = ltk_mod_project::ModProjectLayer::default_table();
+    project
 }
 
 /// Pack a real `.modpkg` at `path`, named `name`, holding one content file.
@@ -118,14 +109,11 @@ pub fn make_named_fantome_zip(path: &Path, name: &str) {
 /// [`make_named_fantome_zip`] with the author and version the archive reports,
 /// which is what tells one mod's versions apart.
 pub fn make_versioned_fantome_zip(path: &Path, name: &str, author: &str, version: &str) {
-    write_fantome_info_zip(
-        path,
-        &ltk_fantome::FantomeInfo {
-            author: author.to_string(),
-            version: version.to_string(),
-            ..fantome_info(name)
-        },
-    );
+    let mut info = fantome_info(name);
+    info.author = author.to_string();
+    info.version = version.to_string();
+
+    write_fantome_info_zip(path, &info);
 }
 
 fn write_fantome_info_zip(path: &Path, info: &ltk_fantome::FantomeInfo) {
@@ -296,17 +284,12 @@ pub fn make_layer_wads_fantome_zip(
 
 /// The metadata of a fantome named `name`.
 pub fn fantome_info(name: &str) -> ltk_fantome::FantomeInfo {
-    ltk_fantome::FantomeInfo {
-        name: name.to_string(),
-        author: "Author".to_string(),
-        version: "1.0.0".to_string(),
-        description: "Description".to_string(),
-        license: None,
-        tags: Vec::new(),
-        champions: Vec::new(),
-        maps: Vec::new(),
-        ..Default::default()
-    }
+    let mut info = ltk_fantome::FantomeInfo::default();
+    info.name = name.to_string();
+    info.author = "Author".to_string();
+    info.version = "1.0.0".to_string();
+    info.description = "Description".to_string();
+    info
 }
 
 /// A chunk path much longer than the hex name a preflight assumes for a packed

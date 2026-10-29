@@ -92,6 +92,7 @@ import { DocumentOpener, type GraphSource, useSkinGraphSource } from "../hooks/u
 import { useJointPick } from "../hooks/useJointPick";
 import { useSkinDynamics } from "../hooks/useSkinDynamics";
 import { useSkinKeys } from "../hooks/useSkinKeys";
+import { useSkinOutlines } from "../hooks/useSkinOutlines";
 import { useSkinPrograms } from "../hooks/useSkinPrograms";
 import { useWornEffects } from "../hooks/useWornEffects";
 import { overriddenHidden, SkinChoiceContext, useSkinChoice } from "../state/skinChoice";
@@ -114,6 +115,8 @@ import {
   parameterValues,
   playableClips,
   playlistOf,
+  DATA_TEXTURES,
+  dataTextureAssets,
   textureAssets,
 } from "../utils/skinScene";
 import { socketDragEdits } from "../utils/socketEdits";
@@ -352,11 +355,14 @@ function SkinScene({ skin, document, asset, source, entry }: SkinSceneProps) {
 
   const assets = useMemo(() => textureAssets(skin), [skin]);
   const textures = useAssetTextures(assets);
+  const dataAssets = useMemo(() => dataTextureAssets(skin), [skin]);
+  const maps = useAssetTextures(dataAssets, DATA_TEXTURES);
   const bindingFor = useCallback(
-    (submesh: string) => bindingOf(skin, textures, submesh),
-    [skin, textures],
+    (submesh: string) => bindingOf(skin, textures, submesh, maps),
+    [skin, textures, maps],
   );
   const programsFor = useSkinPrograms(document, skin, shaders);
+  const outlineFor = useSkinOutlines(document, skin, shaders);
   const heldValue = useHeldValue();
   const colors = useSceneColors();
   /* Where the subject stands: what the creator dragged it to on this backdrop, else the
@@ -484,6 +490,7 @@ function SkinScene({ skin, document, asset, source, entry }: SkinSceneProps) {
               clock={clock}
               bindingOf={bindingFor}
               programsOf={programsFor}
+              outlineOf={outlineFor}
               held={heldValue}
               colors={colors}
               hidden={hidden}

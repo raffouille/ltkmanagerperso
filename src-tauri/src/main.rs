@@ -103,6 +103,7 @@ fn main() {
         .plugin(services::integrations::plugin())
         .plugin(services::links::plugin())
         .plugin(services::news::plugin())
+        .plugin(services::runeforge::plugin())
         .plugin(services::workshop::plugin());
 
     builder

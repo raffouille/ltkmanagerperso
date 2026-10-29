@@ -2,7 +2,7 @@
   "name": "ltk-manager-ui",
   "private": true,
   "license": "GPL-3.0-or-later",
-  "version": "1.30.5",
+  "version": "1.31.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -65,6 +65,9 @@
     ],
     "crates/ltk-manager-problems/**/*.rs": [
       "cargo fmt --manifest-path crates/ltk-manager-problems/Cargo.toml --"
+    ],
+    "crates/ltk-manager-runeforge/**/*.rs": [
+      "cargo fmt --manifest-path crates/ltk-manager-runeforge/Cargo.toml --"
     ],
     "crates/ltk-manager-runtime/**/*.rs": [
       "cargo fmt --manifest-path crates/ltk-manager-runtime/Cargo.toml --"

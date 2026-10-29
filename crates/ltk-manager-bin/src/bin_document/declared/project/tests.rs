@@ -4,6 +4,7 @@ use ltk_meta::{Bin, PropertyValueEnum};
 
 use super::super::tests::{Game, SKIN, game_bin, h, project};
 use super::*;
+use crate::bin_document::BinDocument;
 use crate::meta_schema;
 
 const CHUNK: &str = "data/characters/teemo/skins/skin0.bin";
@@ -59,4 +60,95 @@ fn a_chunk_no_declaration_reaches_is_none() {
         .unwrap();
 
     assert_eq!(applied, None);
+}
+
+/// A game chunk asset as the game index places `CHUNK`.
+fn game_chunk() -> AssetRef {
+    AssetRef::GameChunk {
+        wad: "Champions/Teemo.wad.client".to_owned(),
+        path_hash: format!("{:016x}", ltk_game_data::path_hash(CHUNK)),
+    }
+}
+
+#[test]
+fn declared_asset_reads_a_game_chunk_with_the_object_a_target_module_clones() {
+    const CLONE: &str = "Mods/jade-teemo/Animations/Clone";
+    let dir = tempfile::tempdir().unwrap();
+    let declarations = declarations(
+        dir.path(),
+        &format!(
+            "version: 1
+modules:
+  - target: {CHUNK}
+    objects:
+      {CLONE}:
+        clone: {SKIN}
+"
+        ),
+    );
+
+    let read = declarations.declared_asset(&game_chunk(), game_bin());
+
+    let document = BinDocument::parse(read).unwrap();
+    assert!(document.object_at(h(CLONE)).is_some());
+    assert!(document.object_at(h(SKIN)).is_some());
+}
+
+#[test]
+fn declared_asset_leaves_a_layer_file_as_it_is() {
+    let dir = tempfile::tempdir().unwrap();
+    let declarations = declarations(
+        dir.path(),
+        &format!(
+            "version: 1
+modules:
+  - entries:
+      {SKIN}:
+        skinMeshProperties.selfIllumination: 0.37
+"
+        ),
+    );
+    let layer = AssetRef::Layer {
+        project: dir.path().to_string_lossy().into_owned(),
+        layer: "base".to_owned(),
+        path: CHUNK.to_owned(),
+    };
+
+    assert_eq!(declarations.declared_asset(&layer, game_bin()), game_bin());
+}
+
+#[test]
+fn creating_targets_names_the_target_whose_source_creates_the_entry() {
+    const MAP: &str = "data/maps/shipping/map11/map11.bin";
+    const CATEGORY: &str = "Mods/inked/CharacterInking";
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("content/base/game-data")).unwrap();
+    fs::write(
+        dir.path().join("content/base/game-data/inking.yaml"),
+        format!("version: 1\nobjects:\n  {CATEGORY}:\n    clone: {SKIN}\n"),
+    )
+    .unwrap();
+    let declarations = declarations(
+        dir.path(),
+        &format!(
+            "version: 1
+modules:
+  - target: {CHUNK}
+    objects:
+      Mods/inked/Other:
+        clone: {SKIN}
+  - target: {MAP}
+    source: game-data/inking.yaml
+"
+        ),
+    );
+
+    let targets: Vec<&str> = declarations
+        .creating_targets(h(CATEGORY))
+        .into_iter()
+        .map(Target::as_str)
+        .collect();
+
+    assert_eq!(targets, [MAP]);
+    assert!(declarations.creating_targets(h(SKIN)).is_empty());
 }

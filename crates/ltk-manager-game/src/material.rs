@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 pub mod defs;
+pub mod outline;
 pub mod pass;
 pub mod template;
 

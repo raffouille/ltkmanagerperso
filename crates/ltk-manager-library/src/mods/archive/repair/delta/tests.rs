@@ -183,18 +183,16 @@ mod held {
     /// A fantome declaring one game table holding `names`, and nothing else.
     fn declaring_fantome(archive: &Path, names: &[&str]) {
         let (algorithm, width) = Category::Game.default_shape().unwrap();
-        let info = ltk_fantome::FantomeInfo {
-            name: "declaring-mod".to_owned(),
-            author: "Author".to_owned(),
-            version: "1.0.0".to_owned(),
-            hashtables: vec![FantomeHashtable {
-                path: TABLE.to_owned(),
-                category: Category::Game,
-                algorithm,
-                bits: width.bits(),
-            }],
-            ..Default::default()
-        };
+        let mut info = ltk_fantome::FantomeInfo::default();
+        info.name = "declaring-mod".to_owned();
+        info.author = "Author".to_owned();
+        info.version = "1.0.0".to_owned();
+        info.hashtables = vec![FantomeHashtable {
+            path: TABLE.to_owned(),
+            category: Category::Game,
+            algorithm,
+            bits: width.bits(),
+        }];
         let mut table = Vec::new();
         ltk_hashtable::Hashtable::from_names(names.iter().copied())
             .unwrap()

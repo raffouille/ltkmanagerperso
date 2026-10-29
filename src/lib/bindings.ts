@@ -180,6 +180,8 @@ export type AppErrorResponse =
 { code: "OVERLAY"; category: OverlayErrorCategory; detail: string } | 
 /**  A download was asked for from a domain the trusted providers list omits. */
 { code: "UNTRUSTED_DOMAIN"; domain: string } | 
+/**  A call to RuneForge failed. The variant says which and carries what the dialog renders. */
+{ code: "RUNEFORGE"; error: RuneforgeError } | 
 /**
  *  Something GitHub publishes could not be read. The kind says which
  *  remedy applies, and the feed says what was being read.
@@ -198,6 +200,14 @@ export type AppInfo = {
 export type AreaUsage = {
 	area: DataArea,
 	bytes: number,
+};
+
+/**  The verdict of the deep scan on one artifact. */
+export type ArtifactHealth = {
+	/**  `pending` until a scan finishes, then the worst severity among the findings. */
+	status: HealthStatus,
+	/**  The findings of the scan. A pending artifact may have none stored. */
+	findings?: Finding[],
 };
 
 /**  What an asset holds, for a viewer that reports it beside the preview. */
@@ -725,6 +735,12 @@ export type ChangeKind =
 /**  Both hold it, with different values. */
 "changed";
 
+/**  A post field that the package would change on the target post. */
+export type ChangedPostField = {
+	/**  The field that changes. */
+	field: PostField,
+};
+
 /**  One named spell and every file declaring its object. */
 export type CharacterSpell = {
 	/**  The object's path hash, as `0x` and eight hex digits. */
@@ -1172,6 +1188,20 @@ export type Config_Serialize = {
 	keepIncidents: number,
 	/**  Which built-in mods the overlay injects above every other mod. */
 	builtinMods: BuiltinModSettings,
+};
+
+/**  The account of the stored token. It holds nothing secret, so `settings.json` keeps it. */
+export type ConnectedAccount = {
+	/**  The id of the user on the site. */
+	userId: string,
+	/**  The user name. It is empty for an account that has not picked one. */
+	username: string,
+	/**  The name the site shows. */
+	displayName: string | null,
+	/**  The 8 characters after `rf_`, which the token page lists. */
+	tokenPrefix: string,
+	/**  The scopes of the token. */
+	scopes: Scope[],
 };
 
 /**
@@ -1952,7 +1982,7 @@ export type EnginePass =
  *  the error value is gone. The Tauri shell maps it to its own `ErrorCode`, and
  *  a CLI could map the same names to exit codes.
  */
-export type ErrorKind = "IO" | "SERIALIZATION" | "MODPKG" | "LEAGUE_NOT_FOUND" | "INVALID_PATH" | "MOD_NOT_FOUND" | "VALIDATION_FAILED" | "INTERNAL_STATE" | "OTHER" | "WORKSHOP_NOT_CONFIGURED" | "PROJECT_NOT_FOUND" | "PROJECT_ALREADY_EXISTS" | "PACK_FAILED" | "FANTOME" | "WAD_ERROR" | "WAD_BUILDER_ERROR" | "PATCHER" | "LAUNCHER" | "ZIP_ERROR" | "SCHEMA_VERSION_TOO_NEW" | "WORKSHOP" | "HASHTABLE" | "PREVIEW" | "BIN_DOCUMENT" | "OVERLAY" | "UNTRUSTED_DOMAIN";
+export type ErrorKind = "IO" | "SERIALIZATION" | "MODPKG" | "LEAGUE_NOT_FOUND" | "INVALID_PATH" | "MOD_NOT_FOUND" | "VALIDATION_FAILED" | "INTERNAL_STATE" | "OTHER" | "WORKSHOP_NOT_CONFIGURED" | "PROJECT_NOT_FOUND" | "PROJECT_ALREADY_EXISTS" | "PACK_FAILED" | "FANTOME" | "WAD_ERROR" | "WAD_BUILDER_ERROR" | "PATCHER" | "LAUNCHER" | "ZIP_ERROR" | "SCHEMA_VERSION_TOO_NEW" | "WORKSHOP" | "HASHTABLE" | "PREVIEW" | "BIN_DOCUMENT" | "OVERLAY" | "UNTRUSTED_DOMAIN" | "RUNEFORGE";
 
 /**  What a clip event does, for the kinds a viewport plays, and nothing for the rest. */
 export type EventKind = 
@@ -2354,6 +2384,15 @@ export type FieldSchema = {
 	revisions: FieldRevision[],
 };
 
+/**  Where a prefilled value came from. */
+export type FieldSource = 
+/**  The package. */
+"package" | 
+/**  The target post as it is. */
+"current-post" | 
+/**  The default of the site. */
+"default";
+
 /**
  *  What one fix run did to a file, as against how much of it.
  * 
@@ -2398,6 +2437,27 @@ export type FileTypeStatus = {
 export type FilesOpened = {
 	paths: string[],
 };
+
+/**  One thing that an inspection or a scan found in a package. */
+export type Finding = {
+	/**  How serious the finding is. */
+	severity: FindingSeverity,
+	/**  The stable code of the finding. */
+	code: string,
+	/**  The text that the server wrote for the finding. */
+	message: string,
+	/**  The path inside the package that the finding is about. */
+	path: string | null,
+};
+
+/**  How serious a [`Finding`] is. */
+export type FindingSeverity = 
+/**  The server refuses the package. */
+"error" | 
+/**  The package is accepted with a problem. */
+"warning" | 
+/**  A note without a problem. */
+"info";
 
 /**
  *  What a repair would change, in the words a row draws.
@@ -2616,6 +2676,14 @@ export type GameSearchHit = {
 	score: number | null,
 	nameRanges: ([number, number])[],
 	pathRanges: ([number, number])[],
+};
+
+/**  A game version that a release may target. */
+export type GameVersion = {
+	/**  The id that a release request names. */
+	id: string,
+	/**  The patch, such as `25.21`. */
+	version: string,
 };
 
 /**  One chunk of a WAD archive. */
@@ -2974,6 +3042,17 @@ export type HealthCheckReadiness =
 "syncing" | 
 /**  No tables, and nothing fetching them but a sync the user starts. */
 "unsynced";
+
+/**  Where an artifact is with the deep scan. */
+export type HealthStatus = 
+/**  The scan found no problem. */
+"ok" | 
+/**  The scan found warnings. */
+"warnings" | 
+/**  The scan found errors. */
+"errors" | 
+/**  The scan has not finished. A status that this build does not know reads as pending. */
+"pending";
 
 /**
  *  Progress of a mod health sweep, emitted per mod.
@@ -3594,6 +3673,16 @@ export type KindShape = {
 	key: PropertyKind | null,
 	/**  What an `Option`, a list or a `Map` holds. */
 	value: PropertyKind | null,
+};
+
+/**  The newest release of an owned post. */
+export type LatestRelease = {
+	/**  The id of the release. */
+	id: string,
+	/**  The tag of the release. */
+	tag: string,
+	/**  When the release was created, as an ISO 8601 timestamp. */
+	createdAt: string,
 };
 
 /**
@@ -5111,6 +5200,29 @@ export type NewItem = {
 	class: string | null,
 };
 
+/**  The body of `POST /api/v1/mods`: the uploads and the overrides of the prefill. */
+export type NewMod = NewMod_Serialize | NewMod_Deserialize;
+
+/**  The body of `POST /api/v1/mods`: the uploads and the overrides of the prefill. */
+export type NewMod_Deserialize = {
+	/**  The inspected uploads. The first becomes the primary artifact. */
+	uploadIds: string[],
+	/**  The post fields that differ from the prefill. */
+	post?: PostOverrides_Deserialize,
+	/**  The release fields that differ from the prefill. */
+	release?: ReleaseOverrides_Deserialize,
+};
+
+/**  The body of `POST /api/v1/mods`: the uploads and the overrides of the prefill. */
+export type NewMod_Serialize = {
+	/**  The inspected uploads. The first becomes the primary artifact. */
+	uploadIds: string[],
+	/**  The post fields that differ from the prefill. */
+	post?: PostOverrides_Serialize,
+	/**  The release fields that differ from the prefill. */
+	release?: ReleaseOverrides_Serialize,
+};
+
 /**  Where a new object of a declared document starts. */
 export type NewObject = 
 /**  A copy of an object the document holds: `clone`. */
@@ -5155,6 +5267,41 @@ field: string } |
 field: string; shape: KindShape; 
 /**  The class an embed holds, as a name or `0x` and eight hex digits. */
 class: string | null };
+
+/**  The body of `POST /api/v1/mods/:modId/releases`. */
+export type NewRelease = NewRelease_Serialize | NewRelease_Deserialize;
+
+/**  The body of `POST /api/v1/mods/:modId/releases`. */
+export type NewRelease_Deserialize = {
+	/**  The inspected uploads. The first becomes the primary artifact. */
+	uploadIds: string[],
+	/**  The tag. The server uses the tag of the package if it is `None`. */
+	tag?: string | null,
+	/**  The release notes. */
+	description?: string | null,
+	/**  The game version that the release targets. */
+	gameVersion?: string | null,
+	/**  The post fields to refresh from the package. */
+	updatePost: PostField[],
+	/**  Whether the status of the post becomes working. */
+	markAsWorking: boolean,
+};
+
+/**  The body of `POST /api/v1/mods/:modId/releases`. */
+export type NewRelease_Serialize = {
+	/**  The inspected uploads. The first becomes the primary artifact. */
+	uploadIds: string[],
+	/**  The tag. The server uses the tag of the package if it is `None`. */
+	tag?: string | null,
+	/**  The release notes. */
+	description?: string | null,
+	/**  The game version that the release targets. */
+	gameVersion?: string | null,
+	/**  The post fields to refresh from the package. */
+	updatePost: PostField[],
+	/**  Whether the status of the post becomes working. */
+	markAsWorking: boolean,
+};
 
 /**
  *  One node of one bin: which object, and where inside it.
@@ -5461,6 +5608,34 @@ export type OpenedProjectFolder = {
 export type OriginKind = "library" | "workshop";
 
 /**
+ *  An outline material, as a viewport draws the outline without the game's shader.
+ * 
+ *  The shader moves each vertex of the submesh `depth_offset` units toward the camera and
+ *  `width * distance / camera_distance` units along its normal, with culling off. A negative
+ *  offset puts the shell behind the submesh, so the shell shows at the silhouette alone.
+ */
+export type OutlineMaterial = {
+	/**  The material's path hash, `0x` and eight hex digits. */
+	hash: string,
+	/**  The material's path, where a table names it. */
+	name: string | null,
+	/**  `Outline_Color`. The shader does not read its alpha. */
+	color: [(number | null), (number | null), (number | null), (number | null)],
+	/**  `Outline_Width`, in world units at `camera_distance` from the camera. */
+	width: number | null,
+	/**  `Outline_CameraDistanceMod`, the camera distance at which the outline is `width` wide. */
+	cameraDistance: number | null,
+	/**  `Outline_CameraDepthOffset`, in world units toward the camera. */
+	depthOffset: number | null,
+	/**  `Outline_FinalAlphaMult`, which scales the masked alpha. */
+	alpha: number | null,
+	/**  `Outline_Mask`, and none if neither the material nor the shader names one. */
+	mask: NamedAsset | null,
+	/**  `Outline_Mask_ChannelMask`, the weight of each channel of the mask in the alpha. */
+	maskChannels: [(number | null), (number | null), (number | null), (number | null)],
+};
+
+/**
  *  Which way an overlay build failed, as the remedy a consumer picks between.
  * 
  *  Mirrors the categories of `ltk_overlay::Error`, which is not `Serialize`,
@@ -5511,6 +5686,32 @@ export type OverlayProgress = {
 
 /**  Stage of an overlay build. */
 export type OverlayStage = "indexing" | "collecting" | "patching" | "strings" | "complete";
+
+/**  One post of `GET /api/v1/me/mods`, with its newest release. */
+export type OwnedModPost = {
+	/**  The id of the post. */
+	id: string,
+	/**  The name of the post. */
+	name: string,
+	/**  `public`, `private` or `unlisted`. */
+	visibility: string,
+	/**  Whether the post is published. */
+	isPublished: boolean,
+	/**  When the post last changed, as an ISO 8601 timestamp. */
+	updatedAt: string,
+	/**  The newest release, or `None` for a post without one. */
+	latestRelease: LatestRelease | null,
+};
+
+/**  An owned post as the target picker offers it. */
+export type OwnedPostOption = {
+	/**  The id of the post. */
+	id: string,
+	/**  The name of the post. */
+	name: string,
+	/**  The tag of its latest semver release. */
+	latestTag: string | null,
+};
 
 export type PackFormat = "modpkg" | "fantome";
 
@@ -5928,6 +6129,96 @@ path: string;
 /**  The modifier's class as the tables name it, and its hash where none does. */
 class: string };
 
+/**  A field of a mod post that a prefill proposes. */
+export type PostField = 
+/**  The name of the post. A release never refreshes it. */
+"name" | 
+/**  The one-line description. */
+"shortDescription" | 
+/**  The long description. */
+"description" | 
+/**  The category. */
+"category" | 
+/**  The license. */
+"license" | 
+/**  The thumbnail. */
+"thumbnailImageId" | 
+/**  The champions. */
+"championIds" | 
+/**  The maps. */
+"mapIds" | 
+/**  The themes. A release never refreshes them. */
+"themes" | 
+/**  The features. A release never refreshes them. */
+"features" | 
+/**  A field that this build does not know. */
+"unknown";
+
+/**  The post fields of a new post that differ from the prefill. */
+export type PostOverrides = PostOverrides_Serialize | PostOverrides_Deserialize;
+
+/**  The post fields of a new post that differ from the prefill. */
+export type PostOverrides_Deserialize = {
+	/**  The name of the post. */
+	name?: string | null,
+	/**  The category of the post. */
+	category?: string | null,
+};
+
+/**  The post fields of a new post that differ from the prefill. */
+export type PostOverrides_Serialize = {
+	/**  The name of the post. */
+	name?: string | null,
+	/**  The category of the post. */
+	category?: string | null,
+};
+
+/**  The post and the release that the server proposes, with where each value came from. */
+export type Prefill = {
+	/**  The proposed post fields. */
+	post: PrefillPost,
+	/**  The proposed release fields. */
+	release: PrefillRelease,
+	/**  Where each release field came from. */
+	sources: PrefillSources,
+	/**  The findings of the package plus those of the site. */
+	findings: Finding[],
+	/**  The next free tag if the tag of the package is taken. */
+	suggestedTag: string | null,
+	/**  The post fields that the package would change on the target post. */
+	changedPostFields: ChangedPostField[],
+};
+
+/**  The post fields that a prefill proposes. */
+export type PrefillPost = {
+	/**  The name of the post. */
+	name: string,
+	/**  The one-line description. */
+	shortDescription: string | null,
+	/**  The category of the post. */
+	category: string,
+	/**  The staged thumbnail image, or the current one of the target post. */
+	thumbnailImageId: string | null,
+};
+
+/**  The release fields that a prefill proposes. */
+export type PrefillRelease = {
+	/**  The tag of the release. */
+	tag: string,
+	/**  The release notes. */
+	notes: string,
+	/**  The game version that the release targets. */
+	gameVersionId: string | null,
+	/**  The label of the package artifact. */
+	artifactLabel: string,
+};
+
+/**  Where each release field of a prefill came from. */
+export type PrefillSources = {
+	/**  The sources of the release fields. */
+	release: ReleaseSources,
+};
+
 /**  A `StaticMaterialDef` that a shader def's preview draws the def through. */
 export type PreviewMaterial = {
 	/**  The bin that declares the material. */
@@ -6142,6 +6433,131 @@ export type ProtocolInstallProgress = {
 /**  Where a protocol install has got to. */
 export type ProtocolInstallStage = "downloading" | "validating" | "complete" | "error";
 
+/**  The body of `POST /api/v1/mods/:modId/publish`: the AI content answer, when the site asks. */
+export type PublishAnswer = PublishAnswer_Serialize | PublishAnswer_Deserialize;
+
+/**  The body of `POST /api/v1/mods/:modId/publish`: the AI content answer, when the site asks. */
+export type PublishAnswer_Deserialize = {
+	/**  Whether the post content is AI generated. */
+	hasAiGeneratedPostContent?: boolean | null,
+	/**  The `aiContentDisclosureVersion` of the checklist that the answer replies to. */
+	expectedVersion?: string | null,
+};
+
+/**  The body of `POST /api/v1/mods/:modId/publish`: the AI content answer, when the site asks. */
+export type PublishAnswer_Serialize = {
+	/**  Whether the post content is AI generated. */
+	hasAiGeneratedPostContent?: boolean | null,
+	/**  The `aiContentDisclosureVersion` of the checklist that the answer replies to. */
+	expectedVersion?: string | null,
+};
+
+/**  Why `POST /api/v1/mods/:modId/publish` did not publish. */
+export type PublishChecklist = {
+	/**  Whether the account publishes directly or through a review. */
+	path: PublishPath,
+	/**  What the post still lacks. */
+	missing: PublishRequirement[],
+	/**  The version that an AI content answer replies to. */
+	aiContentDisclosureVersion: string,
+	/**  A moderator label is active, so only a yes answer is accepted. */
+	aiModeratorEnforced: boolean,
+	/**  The site path where the creator requests a review, such as `/mods/<id>`. */
+	reviewPath: string | null,
+};
+
+/**  What a submit created, and how the steps after the create went. */
+export type PublishOutcome = {
+	/**  The id of the post. */
+	modId: string,
+	/**  The id of the release. */
+	releaseId: string,
+	/**  The page of the post on the site. */
+	modUrl: string,
+	/**  The result of the publish call, or `None` if none was asked for. */
+	publish: PublishResult | null,
+	/**  The result of the stamp write. */
+	stamp: StampResult,
+	/**  Why the release did not refresh every post field that it was asked to. */
+	postUpdateError: string | null,
+};
+
+/**  How an account gets a post published. */
+export type PublishPath = 
+/**  The account publishes without a review. */
+"publish" | 
+/**  The post goes live only through a review that the creator requests on the site. */
+"review";
+
+/**  What the publish dialog asks the server to create. */
+export type PublishRequest = PublishRequest_Serialize | PublishRequest_Deserialize;
+
+/**  What the publish dialog asks the server to create. */
+export type PublishRequest_Deserialize = 
+/**  A new post with its first release, published after the create if `publish` is set. */
+({ kind: "newMod"; newMod: NewMod_Deserialize; publish: PublishAnswer_Deserialize | null }) & { modId?: never; release?: never } | 
+/**  A release of the post `mod_id`. */
+({ kind: "release"; modId: string; release: NewRelease_Deserialize }) & { newMod?: never; publish?: never };
+
+/**  What the publish dialog asks the server to create. */
+export type PublishRequest_Serialize = 
+/**  A new post with its first release, published after the create if `publish` is set. */
+({ kind: "newMod"; newMod: NewMod_Serialize; publish: PublishAnswer_Serialize | null }) & { modId?: never; release?: never } | 
+/**  A release of the post `mod_id`. */
+({ kind: "release"; modId: string; release: NewRelease_Serialize }) & { newMod?: never; publish?: never };
+
+/**  A requirement of publishing that a post does not meet yet. */
+export type PublishRequirement = 
+/**  The post has no thumbnail. */
+"thumbnail" | 
+/**  The post has no release. */
+"release" | 
+/**  The post has no license. */
+"license" | 
+/**  The AI content question has no answer. */
+"ai_disclosure" | 
+/**  A requirement that this build does not know. */
+"unknown";
+
+/**  The result of a publish call. */
+export type PublishResult = 
+/**  The post is public. */
+{ kind: "published" } | 
+/**  The post lacks what `checklist` lists. `review_url` is the page that requests a review. */
+{ kind: "refused"; checklist: PublishChecklist; reviewUrl: string | null } | 
+/**  The publish call failed with `error`. The post and the release exist. */
+{ kind: "failed"; error: RuneforgeError };
+
+/**  What the server read from a packed and uploaded project, and the post it targets first. */
+export type PublishReview = {
+	/**  The project directory that was packed. */
+	projectPath: string,
+	/**  The file name of the package. */
+	fileName: string,
+	/**  The size of the package in bytes. */
+	size: number,
+	/**  The validation warnings of the project. */
+	warnings: string[],
+	/**  The inspection, the findings and the prefill for the target of `choice`. */
+	review: UploadReview,
+	/**  The post that the dialog selects first. */
+	choice: TargetChoice,
+	/**  The posts of the account, for the target picker. */
+	owned: OwnedModPost[],
+};
+
+/**  `GET /api/v1/publishing-context`: the values a release and a new post may take. */
+export type PublishingContext = {
+	/**  The posts that the account may upload to. */
+	ownedPosts: OwnedPostOption[],
+	/**  The game versions a release may target, newest first. */
+	gameVersions: GameVersion[],
+	/**  Whether a new post may be published without a review. */
+	canPublishWithoutReview: boolean,
+	/**  The categories a new post may take. */
+	categories: string[],
+};
+
 /**  Why a document takes no edit. "Where editing is allowed" in docs/ux/BIN_EDITOR.md. */
 export type ReadOnly = 
 /**  A file outside every project. */
@@ -6237,6 +6653,30 @@ export type ReimportInspection = {
 	source: number | null,
 };
 
+/**  `GET /api/v1/mods/:modId/releases/:releaseId`: the release and its artifacts. */
+export type Release = {
+	/**  The id of the release. */
+	id: string,
+	/**  The tag of the release. */
+	tag: string,
+	/**  The files of the release. */
+	artifacts: ReleaseArtifact[],
+};
+
+/**  One file of a release. */
+export type ReleaseArtifact = {
+	/**  The id of the artifact. */
+	id: string,
+	/**  The file name. */
+	filename: string,
+	/**  The package format, `modpkg` or `fantome`. */
+	format: string | null,
+	/**  The hex sha256 of the package, once the deep scan has read it. */
+	contentHash: string | null,
+	/**  The verdict of the deep scan, once it has read the package. */
+	health: ArtifactHealth | null,
+};
+
 /**  One published release, as the changelog reads it. */
 export type ReleaseNote = {
 	/**  The tag without its leading `v`. */
@@ -6250,11 +6690,44 @@ export type ReleaseNote = {
 	url: string,
 };
 
+/**  The release fields of a new post that differ from the prefill. */
+export type ReleaseOverrides = ReleaseOverrides_Serialize | ReleaseOverrides_Deserialize;
+
+/**  The release fields of a new post that differ from the prefill. */
+export type ReleaseOverrides_Deserialize = {
+	/**  The tag of the release. */
+	tag?: string | null,
+	/**  The release notes. */
+	notes?: string | null,
+	/**  The game version that the release targets. */
+	gameVersionId?: string | null,
+};
+
+/**  The release fields of a new post that differ from the prefill. */
+export type ReleaseOverrides_Serialize = {
+	/**  The tag of the release. */
+	tag?: string | null,
+	/**  The release notes. */
+	notes?: string | null,
+	/**  The game version that the release targets. */
+	gameVersionId?: string | null,
+};
+
 /**  A page of the release feed, and where the next one starts. */
 export type ReleasePage = {
 	releases: ReleaseNote[],
 	/**  `None` once the feed has no page after this one. */
 	nextPage: number | null,
+};
+
+/**  Where each release field of a prefill came from. */
+export type ReleaseSources = {
+	/**  The source of the tag. */
+	tag: FieldSource,
+	/**  The source of the notes. */
+	notes: FieldSource,
+	/**  The source of the game version. */
+	gameVersionId: FieldSource,
 };
 
 /**  How a pass's fragments reach the target, from the first pass's own fields. */
@@ -6596,6 +7069,80 @@ export type Run_Serialize = {
 	failed: RuleFailure_Serialize[],
 };
 
+/**
+ *  Why a call to RuneForge failed.
+ * 
+ *  Sent over IPC whole, as the `error` of the `RUNEFORGE` code, so the frontend switches on
+ *  `kind` and renders the data that a variant carries.
+ */
+export type RuneforgeError = 
+/**  The app has no stored token. */
+{ kind: "NOT_CONNECTED" } | 
+/**  The token is malformed, unknown, revoked or expired. */
+{ kind: "UNAUTHORIZED" } | 
+/**  The token lacks `scope`, or the account may not do this if `scope` is `None`. */
+{ kind: "FORBIDDEN"; scope: Scope | null } | 
+/**  The post or the upload does not exist for the account. */
+{ kind: "NOT_FOUND" } | 
+/**  The server refused the package for `findings`. */
+{ kind: "PACKAGE_REJECTED"; findings: Finding[] } | 
+/**  The post already has the tag. `suggested_tag` is the next free patch. */
+{ kind: "TAG_TAKEN"; suggestedTag: string } | 
+/**  The upload is past the state that the call needs. */
+{ kind: "UPLOAD_STATE" } | 
+/**  The post did not publish. `checklist` lists what it lacks. */
+{ kind: "PUBLISH_REFUSED"; checklist: PublishChecklist } | 
+/**
+ *  An earlier request with the same `Idempotency-Key` differs or still runs, or the post is
+ *  under moderation.
+ */
+{ kind: "CONFLICT" } | 
+/**  The package is over the 1 GiB limit. */
+{ kind: "TOO_LARGE" } | 
+/**
+ *  The server refused the request because the token sent over 120 requests in a minute.
+ *  `retry_after` is in seconds.
+ */
+{ kind: "RATE_LIMITED"; retryAfter: number | null } | 
+/**  The storage host refused the PUT of the package bytes with `status`. */
+{ kind: "STORAGE"; status: number } | 
+/**  The server answered with `status` and an error `code` that has no variant of its own. */
+{ kind: "HTTP"; status: number; code: string } | 
+/**  The answer is not in the shape that the route documents. */
+{ kind: "MALFORMED"; detail: string } | 
+/**  The server was not reached, or the connection broke. */
+{ kind: "OFFLINE"; detail: string } | 
+/**  The user cancelled the publish. */
+{ kind: "CANCELLED" } | 
+/**  The OS credential store failed. */
+{ kind: "CREDENTIAL"; detail: string };
+
+/**  How far the publish of one project to RuneForge has got. Throttled by its emitter. */
+export type RuneforgePublishProgress = {
+	/**  The project directory that the publish packs. */
+	projectPath: string,
+	stage: RuneforgePublishStage,
+	/**  The package bytes sent to storage so far. */
+	bytesSent: number,
+	/**  The size of the package, or 0 before the pack ends. */
+	totalBytes: number,
+};
+
+/**  Where a publish to RuneForge has got to. */
+export type RuneforgePublishStage = "validating" | "packing" | "uploading" | "inspecting" | "complete" | "error";
+
+/**  The RuneForge connection as the Settings section shows it. */
+export type RuneforgeStatus = {
+	/**  The connected account, or `None` while disconnected. */
+	account: ConnectedAccount | null,
+	/**  The server refused the stored token during this session. */
+	rejected: boolean,
+	/**  The base URL of the site. */
+	siteUrl: string,
+	/**  The site page where the user makes and revokes tokens. */
+	tokenPageUrl: string,
+};
+
 /**  A static switch the shader reads as a `$Globals` float rather than a define. */
 export type RuntimeSwitch = {
 	/**  The switch's name, without the `switch_` the member carries. */
@@ -6717,6 +7264,19 @@ export type SchemaTexture = {
 	/**  `samplerName`, the shared sampler that overrides a material's address modes. */
 	sharedSampler: string | null,
 };
+
+/**  What a token may do, as the token page lets the creator tick it. */
+export type Scope = 
+/**  Reads the posts of the account, the publishing context and a release. */
+"mods:read" | 
+/**  Creates a mod post from uploads. */
+"mods:write" | 
+/**  Creates uploads and releases. */
+"releases:write" | 
+/**  Publishes a post. */
+"publish" | 
+/**  A scope that this build does not know. */
+"unknown";
 
 /**
  *  Who a search of the game index ranks for. Each keeps its own ticket counter, so a path
@@ -6977,6 +7537,12 @@ export type Settings_Deserialize = {
 	 *  upgrading user who completed first run releases ago.
 	 */
 	hasSeenDiagnosticsNotice?: boolean,
+	/**
+	 *  The RuneForge account of the token in the credential store, or `None` while disconnected.
+	 * 
+	 *  Only the RuneForge commands write it. `save_settings` keeps the stored value.
+	 */
+	runeforge?: ConnectedAccount | null,
 } & Config_Deserialize;
 
 /**
@@ -7073,6 +7639,12 @@ export type Settings_Serialize = {
 	 *  upgrading user who completed first run releases ago.
 	 */
 	hasSeenDiagnosticsNotice: boolean,
+	/**
+	 *  The RuneForge account of the token in the credential store, or `None` while disconnected.
+	 * 
+	 *  Only the RuneForge commands write it. `save_settings` keeps the stored value.
+	 */
+	runeforge: ConnectedAccount | null,
 } & Config_Serialize;
 
 /**
@@ -7218,6 +7790,15 @@ export type SkinModel = {
 	texture: NamedAsset | null,
 	/**  `emissiveTexture`, the emissive mask of a submesh with no material. */
 	emissiveTexture: NamedAsset | null,
+	/**
+	 *  `RoughnessMetallicAoTexture`, which draws a submesh with no material physically based.
+	 * 
+	 *  The red channel is roughness, the green channel is metalness and the blue channel is
+	 *  ambient occlusion.
+	 */
+	roughnessMetallicAoTexture: NamedAsset | null,
+	/**  `normalMapTexture`, the tangent-space normal map of a submesh with no material. */
+	normalMapTexture: NamedAsset | null,
 	/**  The `Material` a submesh draws with where no override names its own. */
 	material: MaterialPreview | null,
 	/**  The submeshes a `materialOverride` gives a texture or a material of their own. */
@@ -7247,6 +7828,21 @@ export type SkinModel = {
 	poseModifiers: PoseModifier[],
 	/**  `skinMeshProperties.SocketDefinitions`, in the order the skin lists them. */
 	sockets: Socket[],
+	/**  `skinMeshProperties.OutlineCategorySubmeshes`, in the order the skin lists them. */
+	outlines: SkinOutline[],
+};
+
+/**  One `OutlineCategorySubmeshes` entry: submeshes that the engine draws an outline around. */
+export type SkinOutline = {
+	/**  `category`, the `CharacterOutlineCategory`'s path hash, `0x` and eight hex digits. */
+	category: string,
+	/**  `Submeshes`, apart on spaces and commas. */
+	submeshes: string[],
+	/**
+	 *  `materialOverride`, else the category's `Material`. None if neither resolves, and the
+	 *  outline is not drawn.
+	 */
+	material: OutlineMaterial | null,
 };
 
 /**  Why a property edit does not apply, as `ltk_game_data` names it. */
@@ -7377,6 +7973,13 @@ export type StageProgram = {
 	cached: boolean,
 };
 
+/**  The result of writing the distributor stamp into the project. */
+export type StampResult = 
+/**  The project config names the post. */
+{ kind: "written" } | 
+/**  The write failed with `detail`. The release exists. */
+{ kind: "failed"; detail: string };
+
 export type StorageMedium = "ssd" | "hdd" | "unknown";
 
 /**
@@ -7446,6 +8049,27 @@ export type SubmeshOverride = {
 	texture: NamedAsset | null,
 	/**  The override's `Material`, which wins over every texture. */
 	material: MaterialPreview | null,
+	/**  The override's `RoughnessMetallicAoTexture`, in place of the skin's own. */
+	roughnessMetallicAoTexture: NamedAsset | null,
+	/**  The override's `normalMapTexture`, in place of the skin's own. */
+	normalMapTexture: NamedAsset | null,
+};
+
+/**  How a suggested post was found. */
+export type SuggestionMatch = 
+/**  The distributor stamp of the package names the post. */
+"distributor" | 
+/**  The post has the display name of the package. */
+"name";
+
+/**  Which owned post a package most likely updates, and the tag its release would get. */
+export type Suggestions = {
+	/**  The suggested post, or `None` if no owned post matches. */
+	modId: string | null,
+	/**  How the suggested post was found. */
+	matchedBy: SuggestionMatch | null,
+	/**  The patch bump of the latest semver release of the suggested post. */
+	nextTag: string | null,
 };
 
 /**  What a surface is made from: an image file, or a sprite an element already draws. */
@@ -7481,6 +8105,23 @@ export type SyncGroup = {
 	hash: string,
 	/**  `mType`. */
 	kind: number,
+};
+
+/**  The post that the publish dialog selects when it opens, and why. */
+export type Target = 
+/**  The project stamp names a post of the account. */
+{ kind: "stamped"; modId: string } | 
+/**  The server suggested a post of the account. */
+{ kind: "suggested"; modId: string; matchedBy: SuggestionMatch } | 
+/**  No post matches, so the publish creates a new one. */
+{ kind: "new" };
+
+/**  The target of a publish, and whether the project stamp names a post the account does not own. */
+export type TargetChoice = {
+	/**  The post that the dialog selects. */
+	target: Target,
+	/**  The post that the project stamp names if the account does not own it. */
+	foreignStamp: string | null,
 };
 
 /**  What carries a system a template made, per ADR-0057. */
@@ -8275,6 +8916,30 @@ export type UniformBlock = {
 
 /**  The axis that points up in a model file. */
 export type UpAxis = "y" | "z";
+
+/**  An upload as its owner sees it. */
+export type Upload = {
+	/**  The id of the upload. */
+	id: string,
+	/**  The file name that the upload was created with. */
+	filename: string,
+	/**  The state of the upload, such as `pending` or `inspected`. */
+	status: string,
+	/**  The package format that the server read, `modpkg` or `fantome`. */
+	format: string | null,
+};
+
+/**  `POST /api/v1/uploads/:id/complete`: what the server read and where the package may go. */
+export type UploadReview = {
+	/**  The inspected upload. */
+	upload: Upload,
+	/**  The findings of the inspection. */
+	findings: Finding[],
+	/**  The post that the package most likely updates. */
+	suggestions: Suggestions,
+	/**  The post and the release that the server proposes for the suggested target. */
+	prefill: Prefill,
+};
 
 /**  Validation result for a project. */
 export type ValidationResult = {

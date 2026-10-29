@@ -1,3 +1,5 @@
+import { NoColorSpace } from "three";
+
 import type {
   AssetRef,
   GraphClip,
@@ -6,15 +8,21 @@ import type {
   KeyRef,
   MaterialPreview,
   MaterialProgram,
+  NamedAsset,
   SkinModel,
+  SkinOutline,
+  SubmeshOverride,
   VfxSystem,
 } from "@/lib/tauri";
 import {
   isSocketed,
   jointAnchor,
+  type PbrMaps,
   type Pose,
   programPasses,
+  programWith,
   type SubmeshBinding,
+  type SubmeshOutline,
   type SubmeshProgram,
 } from "@/modules/viewport";
 
@@ -133,6 +141,64 @@ function materialKey(material: MaterialPreview): string {
   return `material:${material.hash}`;
 }
 
+/** The key prefix of a `RoughnessMetallicAoTexture`, alone for the skin's own. */
+const RMA_TEXTURE = "rma";
+
+/** The key prefix of a `normalMapTexture`, alone for the skin's own. */
+const NORMAL_TEXTURE = "normal";
+
+/** The key of the skin's `emissiveTexture`, which no override names. */
+const EMISSIVE_TEXTURE = "emissive";
+
+function pbrKey(kind: string, submesh: string | null): string {
+  return submesh === null ? kind : `${kind}:${submesh.toLowerCase()}`;
+}
+
+/** The `materialOverride` entry that names `submesh`, matched without regard to case. */
+function overrideOf(skin: SkinModel, submesh: string): SubmeshOverride | null {
+  const key = submesh.toLowerCase();
+  return skin.overrides.find((each) => each.submesh.toLowerCase() === key) ?? null;
+}
+
+/** How `dataTextureAssets` load: as data, without colour decoding. */
+export const DATA_TEXTURES = { colorSpace: NoColorSpace } as const;
+
+/**
+ * Every `RoughnessMetallicAoTexture`, `normalMapTexture` and `emissiveTexture` the skin draws
+ * with and this machine holds, keyed for `bindingOf`. They load without colour decoding.
+ */
+export function dataTextureAssets(skin: SkinModel): Map<string, AssetRef> {
+  const assets = new Map<string, AssetRef>();
+  const add = (kind: string, submesh: string | null, texture: NamedAsset | null) => {
+    if (texture?.asset) assets.set(pbrKey(kind, submesh), texture.asset);
+  };
+  add(RMA_TEXTURE, null, skin.roughnessMetallicAoTexture);
+  add(NORMAL_TEXTURE, null, skin.normalMapTexture);
+  add(EMISSIVE_TEXTURE, null, skin.emissiveTexture);
+  for (const override of skin.overrides) {
+    add(RMA_TEXTURE, override.submesh, override.roughnessMetallicAoTexture);
+    add(NORMAL_TEXTURE, override.submesh, override.normalMapTexture);
+  }
+  return assets;
+}
+
+/**
+ * Whether `submesh` draws with `LIT_UBER`'s physically based variant: it has no material,
+ * and its override or else its skin names a `RoughnessMetallicAoTexture`.
+ */
+export function drawsPbr(skin: SkinModel, submesh: string): boolean {
+  if (submeshMaterial(skin, submesh) !== null) return false;
+  const rma =
+    overrideOf(skin, submesh)?.roughnessMetallicAoTexture ?? skin.roughnessMetallicAoTexture;
+  return rma !== null;
+}
+
+function pbrMapsOf<T>(maps: ReadonlyMap<string, T>, submesh: string): PbrMaps<T> | null {
+  const held = (kind: string) => maps.get(pbrKey(kind, submesh)) ?? maps.get(kind) ?? null;
+  const rma = held(RMA_TEXTURE);
+  return rma === null ? null : { rma, normal: held(NORMAL_TEXTURE) };
+}
+
 /** Every texture the skin draws with and this machine holds, keyed for `bindingOf`. */
 export function textureAssets(skin: SkinModel): Map<string, AssetRef> {
   const assets = new Map<string, AssetRef>();
@@ -152,11 +218,15 @@ export function textureAssets(skin: SkinModel): Map<string, AssetRef> {
 /**
  * What `submesh` draws with, first match winning: its override's material, else its
  * override's texture alone, else the skin's material, else the skin's texture.
+ *
+ * A submesh with no material takes the maps of `maps`, keyed by `dataTextureAssets`: its
+ * override's PBR maps, else the skin's, and the skin's emissive mask.
  */
 export function bindingOf<T>(
   skin: SkinModel,
   textures: ReadonlyMap<string, T>,
   submesh: string,
+  maps: ReadonlyMap<string, T> = new Map(),
 ): SubmeshBinding<T> {
   const texture = textures.get(overrideKey(submesh)) ?? textures.get(BASE_TEXTURE) ?? null;
   const material = submeshMaterial(skin, submesh);
@@ -164,6 +234,8 @@ export function bindingOf<T>(
     material,
     base: material === null ? null : (textures.get(materialKey(material)) ?? null),
     texture,
+    pbr: material === null ? pbrMapsOf(maps, submesh) : null,
+    emissive: material === null ? (maps.get(EMISSIVE_TEXTURE) ?? null) : null,
   };
 }
 
@@ -192,10 +264,67 @@ export function programsOf<T>(
   return programPasses(programs.find((each) => each?.hash === material.hash) ?? null, textures);
 }
 
+/**
+ * The first `OutlineCategorySubmeshes` entry that names `submesh` and has a material, matched
+ * without regard to case, and null for none.
+ */
+export function skinOutlineOf(skin: SkinModel, submesh: string): SkinOutline | null {
+  const key = submesh.toLowerCase();
+  return (
+    skin.outlines.find(
+      (outline) =>
+        outline.material !== null && outline.submeshes.some((name) => name.toLowerCase() === key),
+    ) ?? null
+  );
+}
+
+/** The hash of every outline material the skin draws with, each once. */
+export function outlineMaterialHashes(skin: SkinModel): string[] {
+  const hashes = new Set<string>();
+  for (const outline of skin.outlines) {
+    if (outline.material !== null) hashes.add(outline.material.hash);
+  }
+  return [...hashes];
+}
+
+/** Every outline mask this machine holds, keyed by its material's hash. */
+export function outlineMaskAssets(skin: SkinModel): Map<string, AssetRef> {
+  const assets = new Map<string, AssetRef>();
+  for (const outline of skin.outlines) {
+    const asset = outline.material?.mask?.asset;
+    if (outline.material !== null && asset) assets.set(outline.material.hash, asset);
+  }
+  return assets;
+}
+
+/**
+ * The outline `submesh` draws, and null for none.
+ *
+ * The outline takes the first translated pass of its material out of `programs`, and draws
+ * the stock outline where none translated. Its mask is the one `masks` holds under the
+ * material's hash, keyed by `outlineMaskAssets`.
+ */
+export function submeshOutline<T>(
+  skin: SkinModel,
+  programs: readonly (MaterialProgram | null)[],
+  textures: ReadonlyMap<string, T>,
+  masks: ReadonlyMap<string, T>,
+  submesh: string,
+): SubmeshOutline<T> | null {
+  const material = skinOutlineOf(skin, submesh)?.material ?? null;
+  if (material === null) return null;
+
+  const program = programs.find((each) => each?.hash === material.hash) ?? null;
+  return {
+    material,
+    mask: masks.get(material.hash) ?? null,
+    program: programWith(program, textures),
+  };
+}
+
 /** The material `submesh` draws with: its override's, else the skin's, and null for neither. */
 export function submeshMaterial(skin: SkinModel, submesh: string): MaterialPreview | null {
-  const key = submesh.toLowerCase();
-  const override = skin.overrides.find((each) => each.submesh.toLowerCase() === key) ?? null;
+  const override = overrideOf(skin, submesh);
   return override === null ? skin.material : override.material;
 }
 

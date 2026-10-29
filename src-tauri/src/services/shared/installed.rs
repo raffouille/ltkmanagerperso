@@ -7,6 +7,7 @@ use super::read_asset;
 use crate::error::AppResult;
 use crate::services::objects::index::ObjectIndexState;
 use crate::state::SettingsState;
+use ltk_game_data::Target;
 use ltk_hash::BinHash;
 use ltk_manager_assets::preview::AssetRef;
 use ltk_manager_base::game_build::GameBuild;
@@ -85,35 +86,22 @@ impl ProjectGame {
         }
     }
 
+    /// Returns the target of each module of the project that creates the object `entry`, in
+    /// build order, and none for the game sandbox.
+    pub(crate) fn creating_targets(&self, entry: BinHash) -> Vec<&Target> {
+        self.declarations
+            .as_ref()
+            .map(|declarations| declarations.creating_targets(entry))
+            .unwrap_or_default()
+    }
+
     /// The file `asset`, a bin chunk of the game with the declarations that reach it applied.
     pub(crate) fn read(&self, asset: &AssetRef) -> AppResult<Vec<u8>> {
         let bytes = self.installed.read(asset)?;
-        Ok(self.declared(asset, bytes))
-    }
-
-    /// A declaration that does not apply leaves the game's copy, as the declared document
-    /// raises it where it is edited.
-    fn declared(&self, asset: &AssetRef, bytes: Vec<u8>) -> Vec<u8> {
-        let (Some(declarations), AssetRef::GameChunk { path_hash, .. }) =
-            (&self.declarations, asset)
-        else {
-            return bytes;
-        };
-        if !(bytes.starts_with(b"PROP") || bytes.starts_with(b"PTCH")) {
-            return bytes;
-        }
-        let Some(chunk_hash) = asset.chunk_hash() else {
-            return bytes;
-        };
-
-        match declarations.apply(&bytes, chunk_hash.0) {
-            Ok(Some(applied)) => applied,
-            Ok(None) => bytes,
-            Err(error) => {
-                tracing::warn!(%path_hash, %error, "A preview draws a chunk undeclared");
-                bytes
-            }
-        }
+        Ok(match &self.declarations {
+            Some(declarations) => declarations.declared_asset(asset, bytes),
+            None => bytes,
+        })
     }
 }
 

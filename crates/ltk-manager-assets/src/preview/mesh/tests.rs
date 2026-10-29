@@ -21,6 +21,7 @@ struct Decoded {
     skin_indices: Option<Vec<u8>>,
     skin_weights: Option<Vec<f32>>,
     colors: Option<Vec<u8>>,
+    tangents: Option<Vec<f32>>,
     indices: Vec<u32>,
     submeshes: Vec<(String, u32, u32)>,
 }
@@ -75,6 +76,7 @@ fn decode(buffer: &[u8]) -> Decoded {
     let skin_indices = (flags & HAS_SKIN != 0).then(|| reader.bytes(vertex_count * 4));
     let skin_weights = (flags & HAS_SKIN != 0).then(|| reader.floats(vertex_count * 4));
     let colors = (flags & HAS_COLORS != 0).then(|| reader.bytes(vertex_count * 4));
+    let tangents = (flags & HAS_TANGENTS != 0).then(|| reader.floats(vertex_count * 4));
     let indices = (0..index_count).map(|_| reader.word()).collect();
     let submeshes = (0..submesh_count)
         .map(|_| (reader.text(), reader.word(), reader.word()))
@@ -95,6 +97,7 @@ fn decode(buffer: &[u8]) -> Decoded {
         skin_indices,
         skin_weights,
         colors,
+        tangents,
         indices,
         submeshes,
     }
@@ -275,10 +278,52 @@ fn a_skinned_mesh_round_trips_through_the_buffer() {
             skin_indices: Some(vec![0; 12]),
             skin_weights: Some([1.0, 0.0, 0.0, 0.0].repeat(3)),
             colors: None,
+            tangents: None,
             indices: vec![0, 1, 2],
             submeshes: vec![("body".to_owned(), 0, 3)],
         }
     );
+}
+
+/// A `Tangent` vertex is a `Basic` one, a colour and the tangent with its bitangent sign.
+#[test]
+fn a_skinned_mesh_keeps_its_tangents_and_their_sign() {
+    let tangents: [[f32; 4]; 2] = [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, -1.0]];
+    let vertices: Vec<u8> = tangents
+        .iter()
+        .enumerate()
+        .flat_map(|(i, tangent)| {
+            let mut bytes = vertex([0.0; 3], [0.0, 1.0, 0.0], [0.0, 0.0]);
+            bytes.extend([255; 4]);
+            bytes.extend(tangent.iter().flat_map(|f| f.to_le_bytes()));
+            assert_eq!(
+                bytes.len(),
+                72,
+                "vertex {i} has the Tangent layout's stride"
+            );
+            bytes
+        })
+        .collect();
+    let mesh = SkinnedMesh::from_absolute_indices(
+        vec![SkinnedMeshRange::new("body", 0, 2, 0, 3)],
+        VertexBuffer::new(
+            VertexBufferDescription::from(SkinnedMeshVertexType::Tangent),
+            vertices,
+        ),
+        IndexBuffer::<u16>::new(
+            [0u16, 1, 1]
+                .into_iter()
+                .flat_map(u16::to_le_bytes)
+                .collect(),
+        ),
+    );
+    let mut bytes = Vec::new();
+    mesh.to_writer(&mut bytes).unwrap();
+
+    let decoded = decode(&render(&bytes).unwrap());
+
+    assert_ne!(decoded.flags & HAS_TANGENTS, 0);
+    assert_eq!(decoded.tangents, Some(tangents.concat()));
 }
 
 /// The influences are what a skeleton poses the mesh by, so each vertex keeps its own

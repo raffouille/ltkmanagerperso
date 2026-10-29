@@ -1,17 +1,33 @@
 import { describe, expect, it } from "vitest";
 
-import type { AssetRef, GraphClip, JointEffect, MaterialPreview, SkinModel } from "@/lib/tauri";
+import type {
+  AssetRef,
+  GraphClip,
+  JointEffect,
+  MaterialPreview,
+  MaterialProgram,
+  OutlineMaterial,
+  SkinModel,
+  SkinOutline,
+  SubmeshOverride,
+} from "@/lib/tauri";
 import { createPose, jointAnchor, type JointModel, type SkeletonModel } from "@/modules/viewport";
 
 import {
   BIND_POSE,
   bindingOf,
+  drawsPbr,
   jointRig,
   nearestValue,
   openingClip,
+  outlineMaskAssets,
+  outlineMaterialHashes,
   parameterValues,
   playableClips,
   playlistOf,
+  dataTextureAssets,
+  skinOutlineOf,
+  submeshOutline,
   textureAssets,
 } from "../skinScene";
 
@@ -25,6 +41,8 @@ function skin(over: Partial<SkinModel> = {}): SkinModel {
     skeleton: null,
     texture: null,
     emissiveTexture: null,
+    roughnessMetallicAoTexture: null,
+    normalMapTexture: null,
     material: null,
     overrides: [],
     hidden: [],
@@ -36,6 +54,7 @@ function skin(over: Partial<SkinModel> = {}): SkinModel {
     effectSystems: [],
     poseModifiers: [],
     sockets: [],
+    outlines: [],
     ...over,
   };
 }
@@ -217,8 +236,20 @@ describe("textureAssets and bindingOf", () => {
   const textured = skin({
     texture: { path: "base.tex", asset: chunk("01") },
     overrides: [
-      { submesh: "Wings", texture: { path: "wings.tex", asset: chunk("02") }, material: null },
-      { submesh: "Tail", texture: { path: "tail.tex", asset: null }, material: null },
+      {
+        submesh: "Wings",
+        texture: { path: "wings.tex", asset: chunk("02") },
+        material: null,
+        roughnessMetallicAoTexture: null,
+        normalMapTexture: null,
+      },
+      {
+        submesh: "Tail",
+        texture: { path: "tail.tex", asset: null },
+        material: null,
+        roughnessMetallicAoTexture: null,
+        normalMapTexture: null,
+      },
     ],
   });
 
@@ -238,6 +269,8 @@ describe("textureAssets and bindingOf", () => {
       material: null,
       base: null,
       texture: null,
+      pbr: null,
+      emissive: null,
     });
   });
 
@@ -248,8 +281,20 @@ describe("textureAssets and bindingOf", () => {
       texture: { path: "base.tex", asset: chunk("01") },
       material: body,
       overrides: [
-        { submesh: "Wings", texture: null, material: wings },
-        { submesh: "Cape", texture: { path: "cape.tex", asset: chunk("02") }, material: null },
+        {
+          submesh: "Wings",
+          texture: null,
+          material: wings,
+          roughnessMetallicAoTexture: null,
+          normalMapTexture: null,
+        },
+        {
+          submesh: "Cape",
+          texture: { path: "cape.tex", asset: chunk("02") },
+          material: null,
+          roughnessMetallicAoTexture: null,
+          normalMapTexture: null,
+        },
       ],
     });
     const assets = textureAssets(bound);
@@ -259,11 +304,15 @@ describe("textureAssets and bindingOf", () => {
       material: body,
       base: chunk("10"),
       texture: chunk("01"),
+      pbr: null,
+      emissive: null,
     });
     expect(bindingOf(bound, assets, "wings")).toEqual({
       material: wings,
       base: chunk("20"),
       texture: chunk("01"),
+      pbr: null,
+      emissive: null,
     });
   });
 
@@ -271,7 +320,13 @@ describe("textureAssets and bindingOf", () => {
     const bound = skin({
       material: material("0x1", chunk("10")),
       overrides: [
-        { submesh: "Cape", texture: { path: "cape.tex", asset: chunk("02") }, material: null },
+        {
+          submesh: "Cape",
+          texture: { path: "cape.tex", asset: chunk("02") },
+          material: null,
+          roughnessMetallicAoTexture: null,
+          normalMapTexture: null,
+        },
       ],
     });
 
@@ -279,6 +334,8 @@ describe("textureAssets and bindingOf", () => {
       material: null,
       base: null,
       texture: chunk("02"),
+      pbr: null,
+      emissive: null,
     });
   });
 
@@ -286,6 +343,88 @@ describe("textureAssets and bindingOf", () => {
     const bound = skin({ material: material("0x1", null) });
 
     expect(bindingOf(bound, textureAssets(bound), "Body").base).toBeNull();
+  });
+});
+
+describe("dataTextureAssets and bindingOf", () => {
+  const override = (submesh: string, over: Partial<SubmeshOverride>): SubmeshOverride => ({
+    submesh,
+    texture: null,
+    material: null,
+    roughnessMetallicAoTexture: null,
+    normalMapTexture: null,
+    ...over,
+  });
+  const pbr = skin({
+    texture: { path: "body.tex", asset: chunk("01") },
+    roughnessMetallicAoTexture: { path: "body_rma.tex", asset: chunk("a1") },
+    normalMapTexture: { path: "body_nm.tex", asset: chunk("b1") },
+    overrides: [
+      override("Hat", { roughnessMetallicAoTexture: { path: "hat_rma.tex", asset: chunk("a2") } }),
+      override("Eyes", { material: material("0x1", null) }),
+    ],
+  });
+
+  it("keys the skin's maps and each override's", () => {
+    const maps = dataTextureAssets(pbr);
+
+    expect([...maps.keys()]).toEqual(["rma", "normal", "rma:hat"]);
+  });
+
+  it("binds a submesh with no material to its override's maps, else the skin's", () => {
+    const maps = dataTextureAssets(pbr);
+    const textures = textureAssets(pbr);
+
+    expect(bindingOf(pbr, textures, "Body", maps).pbr).toEqual({
+      rma: chunk("a1"),
+      normal: chunk("b1"),
+    });
+    expect(bindingOf(pbr, textures, "HAT", maps).pbr).toEqual({
+      rma: chunk("a2"),
+      normal: chunk("b1"),
+    });
+  });
+
+  it("binds no maps to a submesh a material draws", () => {
+    expect(bindingOf(pbr, textureAssets(pbr), "Eyes", dataTextureAssets(pbr)).pbr).toBeNull();
+  });
+
+  it("binds no maps where no roughness map is held", () => {
+    const flat = skin({ normalMapTexture: { path: "body_nm.tex", asset: chunk("b1") } });
+
+    expect(bindingOf(flat, textureAssets(flat), "Body", dataTextureAssets(flat)).pbr).toBeNull();
+  });
+
+  it("binds the skin's emissive mask to every submesh with no material, and none to the rest", () => {
+    const glowing = skin({
+      ...pbr,
+      emissiveTexture: { path: "body_em.tex", asset: chunk("c1") },
+    });
+    const maps = dataTextureAssets(glowing);
+    const textures = textureAssets(glowing);
+
+    expect(maps.get("emissive")).toEqual(chunk("c1"));
+    expect(bindingOf(glowing, textures, "Body", maps).emissive).toEqual(chunk("c1"));
+    expect(bindingOf(glowing, textures, "Hat", maps).emissive).toEqual(chunk("c1"));
+    expect(bindingOf(glowing, textures, "Eyes", maps).emissive).toBeNull();
+  });
+});
+
+describe("drawsPbr", () => {
+  it("holds for a submesh with no material whose skin names a roughness map", () => {
+    const pbr = skin({ roughnessMetallicAoTexture: { path: "body_rma.tex", asset: null } });
+
+    expect(drawsPbr(pbr, "Body")).toBe(true);
+    expect(drawsPbr(skin(), "Body")).toBe(false);
+  });
+
+  it("does not hold for a submesh a material draws", () => {
+    const covered = skin({
+      roughnessMetallicAoTexture: { path: "body_rma.tex", asset: null },
+      material: material("0x1", null),
+    });
+
+    expect(drawsPbr(covered, "Body")).toBe(false);
   });
 });
 
@@ -338,5 +477,124 @@ describe("jointRig", () => {
     const rig = jointRig(pose, effect(), 1);
 
     expect(rig.joints?.("Weapon")).toBeNull();
+  });
+});
+
+const INK = "0xaaec01e5";
+const GREEN_INK = "0x120314ea";
+const WHITE = chunk("e4078d70e5b8ff89");
+
+function ink(hash: string): OutlineMaterial {
+  return {
+    hash,
+    name: null,
+    color: [0, 0, 0, 1],
+    width: 5,
+    cameraDistance: 4500,
+    depthOffset: -20,
+    alpha: 1,
+    mask: { path: "assets/shared/materials/white.tex", asset: WHITE },
+    maskChannels: [1, 0, 0, 0],
+  };
+}
+
+function outline(submeshes: string[], material: OutlineMaterial | null): SkinOutline {
+  return { category: "0xe1043940", submeshes, material };
+}
+
+const INKED = skin({
+  outlines: [
+    outline(["Karthus_Weapon"], null),
+    outline(["Karthus_Weapon", "Karthus"], ink(INK)),
+    outline(["Karthus_Body"], ink(INK)),
+    outline(["Cubes"], ink(GREEN_INK)),
+  ],
+});
+
+describe("skinOutlineOf", () => {
+  it("returns the first entry that names the submesh and has a material, without regard to case", () => {
+    expect(skinOutlineOf(INKED, "karthus_weapon")?.material?.hash).toBe(INK);
+    expect(skinOutlineOf(INKED, "Cubes")?.material?.hash).toBe(GREEN_INK);
+  });
+
+  it("returns null if no entry names the submesh", () => {
+    expect(skinOutlineOf(INKED, "Cape")).toBeNull();
+  });
+});
+
+describe("outlineMaterialHashes", () => {
+  it("names each outline material once", () => {
+    expect(outlineMaterialHashes(INKED)).toEqual([INK, GREEN_INK]);
+  });
+});
+
+describe("outlineMaskAssets", () => {
+  it("keys each held mask by its material's hash", () => {
+    expect([...outlineMaskAssets(INKED)]).toEqual([
+      [INK, WHITE],
+      [GREEN_INK, WHITE],
+    ]);
+  });
+});
+
+describe("submeshOutline", () => {
+  const stage = {
+    id: 1,
+    glsl: "#version 300 es\nvoid main() {}\n",
+    sidecar: { blocks: [], textures: [], attributes: [] },
+    cached: false,
+  };
+  const translated: MaterialProgram = {
+    hash: INK,
+    name: null,
+    animated: true,
+    kind: "skinnedMesh",
+    passes: [
+      {
+        pass: {
+          shader: "Shaders/SkinnedMesh/Jade_CharacterOutline",
+          defines: [],
+          runtimeSwitches: [],
+          textures: [],
+          params: [],
+          state: {
+            blendEnable: true,
+            srcColor: "srcAlpha",
+            dstColor: "oneMinusSrcAlpha",
+            srcAlpha: "srcAlpha",
+            dstAlpha: "oneMinusSrcAlpha",
+            cullEnable: false,
+            windingToCull: "ccw",
+            depthEnable: true,
+            depthCompareFunc: 3,
+            writeMask: 31,
+          },
+          schema: null,
+        },
+        program: { kind: "ready", defines: [], vertex: stage, pixel: stage },
+      },
+    ],
+    warnings: [],
+  };
+  const masks = new Map([[INK, "white"]]);
+
+  it("draws the translated pass of the outline material if one translated", () => {
+    const drawn = submeshOutline(INKED, [translated], new Map(), masks, "Karthus");
+
+    expect(drawn?.material.hash).toBe(INK);
+    expect(drawn?.mask).toBe("white");
+    expect(drawn?.program?.material).toBe(INK);
+  });
+
+  it("draws the stock outline if no pass of the material translated", () => {
+    const drawn = submeshOutline(INKED, [null], new Map(), masks, "Cubes");
+
+    expect(drawn?.material.hash).toBe(GREEN_INK);
+    expect(drawn?.mask).toBeNull();
+    expect(drawn?.program).toBeNull();
+  });
+
+  it("returns null for a submesh with no outline", () => {
+    expect(submeshOutline(INKED, [translated], new Map(), masks, "Cape")).toBeNull();
   });
 });

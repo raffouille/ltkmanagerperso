@@ -96,7 +96,12 @@ export {
   CharacterSkinContext,
   useCharacterSkin,
 } from "./character/state/characterSkin";
-export { type FallbackColors, type SubmeshBinding } from "./character/utils/submeshBinding";
+export { type SubmeshOutline } from "./character/utils/outlineMaterial";
+export {
+  type FallbackColors,
+  type PbrMaps,
+  type SubmeshBinding,
+} from "./character/utils/submeshBinding";
 export {
   type ColliderFile,
   type FileCapsule,

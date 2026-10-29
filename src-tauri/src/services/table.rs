@@ -272,6 +272,22 @@ services! {
         take_pending_deep_link,
         take_pending_opened_files,
     }
+    runeforge("runeforge") {
+        // Account
+        runeforge_status,
+        runeforge_connect,
+        runeforge_disconnect,
+        runeforge_owned_mods,
+        runeforge_context,
+        // Publish
+        runeforge_prepare,
+        runeforge_cancel,
+        runeforge_prefill,
+        runeforge_discard,
+        runeforge_submit,
+        runeforge_publish,
+        runeforge_release,
+    }
     news("news") {
         list_releases,
         list_announcements,
