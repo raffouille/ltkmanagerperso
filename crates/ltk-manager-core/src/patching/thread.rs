@@ -42,21 +42,17 @@ const GAME_RELEASE_POLL: Duration = Duration::from_millis(100);
 const PICK_POLL: Duration = Duration::from_millis(1500);
 
 /// `config` with the built-in mod settings saved since the session started, and the skin picked
-/// in champion select kept by base skins.
+/// in champion select.
 pub fn session_config(config: &Config, state: &PatcherStateInner) -> Config {
     let mut config = config.clone();
     if let Some(builtin_mods) = &state.builtin_mods {
         config.builtin_mods = builtin_mods.clone();
     }
 
-    if let Some(pick) = &state.picked_skin {
-        config
-            .builtin_mods
-            .kept_skins
-            .entry(pick.champion.clone())
-            .or_default()
-            .insert(pick.skin);
-    }
+    config.builtin_mods.picked_skin = state
+        .picked_skin
+        .as_ref()
+        .map(|pick| (pick.champion.clone(), pick.skin));
     config
 }
 

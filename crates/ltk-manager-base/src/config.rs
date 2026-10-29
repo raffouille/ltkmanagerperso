@@ -186,6 +186,10 @@ pub struct BuiltinModSettings {
     /// Whether base skins also leaves unchanged the skin the local player picks in champion
     /// select, read from the League client while the patcher runs.
     pub keep_picked_skin: bool,
+    /// The champion alias and the skin number that the local player picked in champion select,
+    /// set by the patching session and never saved.
+    #[serde(skip)]
+    pub picked_skin: Option<(String, u32)>,
     /// Which map skin every game shows.
     pub map_skin: MapSkinMode,
     /// The `name` of the map skin [`MapSkinMode::Forced`] shows, kept while another mode is on.

@@ -8,6 +8,7 @@ mod map_decorations;
 mod map_skins;
 mod mod_skins;
 mod overrides;
+mod picked_skin;
 mod skin_bin;
 mod stand_in;
 mod ward_skins;
@@ -23,6 +24,7 @@ use ltk_wad::PathResolver;
 use map_decorations::MapDecorations;
 use map_skins::MapSkins;
 use overrides::Overrides;
+use picked_skin::PickedSkin;
 use serde::Serialize;
 use skin_bin::SkinBin;
 use std::collections::BTreeMap;
@@ -64,6 +66,9 @@ fn enabled(settings: &BuiltinModSettings) -> Vec<Box<dyn BuiltinMod>> {
     let mut enabled: Vec<Box<dyn BuiltinMod>> = Vec::new();
     if settings.default_ward_skins {
         enabled.push(Box::new(DefaultWardSkins));
+    }
+    if let Some(picked_skin) = PickedSkin::of(settings) {
+        enabled.push(Box::new(picked_skin));
     }
     if let Some(base_skins) = BaseSkins::of(settings) {
         enabled.push(Box::new(base_skins));

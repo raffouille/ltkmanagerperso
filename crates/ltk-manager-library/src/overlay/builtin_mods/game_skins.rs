@@ -85,8 +85,19 @@ impl<'t> GameSkins<'t> {
 
     /// Every skin bin past the base the archives hold, with the archive holding it.
     pub(super) fn past_base(&self) -> Vec<(&str, SkinBin)> {
+        self.past_base_where(|_| true)
+    }
+
+    /// Every skin bin past the base the archives named after `champion` hold, in any case, with
+    /// the archive holding it. A companion's skin bins in those archives are included.
+    pub(super) fn past_base_in(&self, champion: &str) -> Vec<(&str, SkinBin)> {
+        self.past_base_where(|name| archive_stem(name).eq_ignore_ascii_case(champion))
+    }
+
+    fn past_base_where(&self, archive_wanted: impl Fn(&str) -> bool) -> Vec<(&str, SkinBin)> {
         self.archives
             .iter()
+            .filter(|archive| archive_wanted(&archive.name))
             .flat_map(|archive| {
                 let hashes: Vec<WadHash> = archive
                     .wad

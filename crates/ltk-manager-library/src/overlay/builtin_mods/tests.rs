@@ -406,6 +406,7 @@ fn every_built_in_mod_turned_on_is_injected_in_priority_order() {
     let settings = BuiltinModSettings {
         default_ward_skins: true,
         base_skins: ltk_manager_base::config::BaseSkinsScope::AllChampions,
+        picked_skin: Some(("Ahri".to_owned(), 1)),
         ..BuiltinModSettings::default()
     };
 
@@ -419,8 +420,15 @@ fn every_built_in_mod_turned_on_is_injected_in_priority_order() {
     .unwrap();
 
     let ids: Vec<&str> = mods.iter().map(|m| m.id.as_str()).collect();
-    assert_eq!(ids, ["builtin:default-ward-skins", "builtin:base-skins"]);
-    assert_eq!(count_enabled(&settings), 2);
+    assert_eq!(
+        ids,
+        [
+            "builtin:default-ward-skins",
+            "builtin:picked-skin",
+            "builtin:base-skins"
+        ]
+    );
+    assert_eq!(count_enabled(&settings), 3);
     assert_eq!(
         overrides(&storage.path().join("builtin").join("base-skins"))
             .into_iter()
@@ -428,6 +436,120 @@ fn every_built_in_mod_turned_on_is_injected_in_priority_order() {
             .collect::<Vec<_>>(),
         [stand_in("Ahri.wad.client", &skin("ahri", 1), GAME)]
     );
+    assert_eq!(
+        overrides(&storage.path().join("builtin").join("picked-skin")),
+        [(
+            "Ahri.wad.client".to_owned(),
+            skin("ahri", 1),
+            b"PROP".to_vec()
+        )]
+    );
+}
+
+/// The settings that turn base skins on for every champion with `pick` picked.
+fn picked(pick: (&str, u32)) -> BuiltinModSettings {
+    BuiltinModSettings {
+        base_skins: ltk_manager_base::config::BaseSkinsScope::AllChampions,
+        picked_skin: Some((pick.0.to_owned(), pick.1)),
+        ..BuiltinModSettings::default()
+    }
+}
+
+#[test]
+fn picked_skin_restores_the_game_s_bins_of_the_skin_and_its_companion() {
+    let game = tempfile::tempdir().unwrap();
+    build_wad(
+        &champions_dir(game.path()).join("Annie.wad.client"),
+        &[
+            &skin("annie", 0),
+            &skin("annie", 1),
+            &skin("annie", 2),
+            &skin("annietibbers", 0),
+            &skin("annietibbers", 2),
+        ],
+    );
+    let tables = Tables::naming(&[skin("annietibbers", 0), skin("annietibbers", 2)]);
+    let builtin = tempfile::tempdir().unwrap();
+
+    let files = files(&generate(
+        &picked_skin::PickedSkin::of(&picked(("annie", 2))).unwrap(),
+        game.path(),
+        builtin.path(),
+        &tables,
+        &mut [],
+    ));
+
+    assert_eq!(
+        files,
+        [
+            (
+                format!("Annie.wad.client/{}", skin("annie", 2)),
+                b"PROP".to_vec()
+            ),
+            (
+                format!("Annie.wad.client/{}", skin("annietibbers", 2)),
+                b"PROP".to_vec()
+            ),
+        ]
+    );
+}
+
+#[test]
+fn picked_skin_leaves_a_skin_a_mod_ships() {
+    let game = tempfile::tempdir().unwrap();
+    build_wad(
+        &champions_dir(game.path()).join("Ahri.wad.client"),
+        &[&skin("ahri", 0), &skin("ahri", 7)],
+    );
+    let skin_mod = tempfile::tempdir().unwrap();
+    write_mod_with(
+        skin_mod.path(),
+        &[("Ahri.wad.client", &skin("ahri", 7))],
+        b"PROP of a mod",
+    );
+    let builtin = tempfile::tempdir().unwrap();
+
+    let files = files(&generate(
+        &picked_skin::PickedSkin::of(&picked(("Ahri", 7))).unwrap(),
+        game.path(),
+        builtin.path(),
+        &Tables::default(),
+        &mut [fs_mod("skin7", skin_mod.path())],
+    ));
+
+    assert_eq!(files, []);
+}
+
+#[test]
+fn picked_skin_is_off_for_a_base_skin_or_with_base_skins_off() {
+    assert_eq!(picked_skin::PickedSkin::of(&picked(("Ahri", 0))), None);
+    assert_eq!(
+        picked_skin::PickedSkin::of(&BuiltinModSettings {
+            picked_skin: Some(("Ahri".to_owned(), 7)),
+            ..BuiltinModSettings::default()
+        }),
+        None
+    );
+}
+
+#[test]
+fn a_rewrite_reads_no_file_its_record_holds_unchanged() {
+    let dir = tempfile::tempdir().unwrap();
+    let overrides = ward_overrides(&[("Map11.wad.client", 1)]);
+    write_ward_project(&overrides, dir.path());
+    let file = dir
+        .path()
+        .join("content")
+        .join("base")
+        .join("Map11.wad.client")
+        .join("data/characters/sightward/skins/skin1.bin");
+    let written = fs::read(&file).unwrap();
+    let same_length = vec![b'x'; written.len()];
+    fs::write(&file, &same_length).unwrap();
+
+    write_ward_project(&overrides, dir.path());
+
+    assert_eq!(fs::read(&file).unwrap(), same_length);
 }
 
 fn champions_dir(game: &Path) -> PathBuf {

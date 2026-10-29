@@ -20,7 +20,7 @@ fn workshop_tests_take_each_projects_layers() {
 }
 
 #[test]
-fn session_config_reads_saved_built_in_mods_and_keeps_the_picked_skin() {
+fn session_config_reads_saved_built_in_mods_and_the_picked_skin() {
     let config = Config::default();
     let mut state = PatcherStateInner::new();
     state.builtin_mods = Some(BuiltinModSettings {
@@ -38,11 +38,11 @@ fn session_config_reads_saved_built_in_mods_and_keeps_the_picked_skin() {
     assert_eq!(built.builtin_mods.base_skins, BaseSkinsScope::AllChampions);
     assert_eq!(
         built.builtin_mods.kept_skins,
-        [
-            ("Jinx".to_owned(), [1].into()),
-            ("Kaisa".to_owned(), [14].into())
-        ]
-        .into()
+        [("Jinx".to_owned(), [1].into())].into()
+    );
+    assert_eq!(
+        built.builtin_mods.picked_skin,
+        Some(("Kaisa".to_owned(), 14))
     );
 }
 

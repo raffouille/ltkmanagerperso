@@ -164,14 +164,7 @@ fn reconnect_once(client: &Client, lockfile: &Lockfile) -> bool {
 pub(super) fn read_lockfile(league_path: &Path) -> Option<Lockfile> {
     let lockfile_path = league_path.join("lockfile");
 
-    let content = match fs::read_to_string(&lockfile_path) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::debug!("Could not read lockfile at {:?}: {}", lockfile_path, e);
-            return None;
-        }
-    };
-
+    let content = fs::read_to_string(&lockfile_path).ok()?;
     parse_lockfile(&content)
 }
 
@@ -193,7 +186,6 @@ fn parse_lockfile(content: &str) -> Option<Lockfile> {
     };
 
     let port = port.parse::<u16>().ok()?;
-    tracing::debug!("Parsed lockfile ({} parts): port={}", parts.len(), port);
 
     Some(Lockfile {
         port,

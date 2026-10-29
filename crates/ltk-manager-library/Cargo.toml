@@ -45,6 +45,7 @@ tempfile = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
 walkdir = { workspace = true }
+xxhash-rust = { workspace = true }
 zip = { workspace = true }
 specta = { workspace = true, optional = true }
 

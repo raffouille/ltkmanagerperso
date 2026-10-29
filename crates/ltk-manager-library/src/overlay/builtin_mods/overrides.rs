@@ -6,11 +6,42 @@ use filetime::FileTime;
 use fs_err as fs;
 use ltk_manager_base::error::AppResult;
 use ltk_mod_project::{ModProject, ModProjectAuthor, ModProjectLayer};
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+use xxhash_rust::xxh64::xxh64;
+
+/// The file in a project directory that records each layer file the last write left.
+const WRITTEN_FILE: &str = "written.json";
+
+/// The length and the xxh64 of each file a write left in the layer, by its path below the layer.
+///
+/// A later write skips a file whose record and length on disk match without reading it, so a
+/// build reads none of the thousands of unchanged files that base skins writes.
+#[derive(Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct Written(BTreeMap<String, [u64; 2]>);
+
+impl Written {
+    /// Reads the record in `dir`. Returns an empty record if the file is missing or unreadable.
+    fn read(dir: &Path) -> Self {
+        fs::read(dir.join(WRITTEN_FILE))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn save(&self, dir: &Path) -> AppResult<()> {
+        write_if_changed(&dir.join(WRITTEN_FILE), &serde_json::to_vec(self)?)
+    }
+}
+
+/// The length and the xxh64 of `bytes`, as [`Written`] records them.
+fn stamp(bytes: &[u8]) -> [u64; 2] {
+    [bytes.len() as u64, xxh64(bytes, 0)]
+}
 
 /// The chunks a built-in mod overrides, by game archive and chunk path, and the properties it
 /// declares.
@@ -86,7 +117,9 @@ impl Overrides {
     /// Write the overrides to `dir` as the `base` layer of the mod project `name`.
     ///
     /// Only a file whose bytes differ is rewritten, since an unchanged file keeps the
-    /// modification time the overlay's content fingerprint reads. A copy is a hard link to its
+    /// modification time the overlay's content fingerprint reads. A file that [`Written`] records
+    /// with the same bytes, and that has the same length on disk, is not read. A copy is a hard
+    /// link to its
     /// source where the volume allows, and is refreshed when its length or modification time
     /// differs from the source's. A file an earlier write left
     /// that the overrides no longer hold is removed, and nothing outside the layer is touched.
@@ -102,13 +135,24 @@ impl Overrides {
             &serde_json::to_vec_pretty(&mod_project(name, display_name))?,
         )?;
 
+        let previous = Written::read(dir);
+        let lengths = file_lengths(&layer_dir)?;
+        let mut written = Written::default();
+
         let mut kept = BTreeSet::new();
-        for (path, bytes) in self.iter() {
-            let path = layer_dir.join(path);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent)?;
+        for (relative, bytes) in self.iter() {
+            let path = layer_dir.join(relative);
+            let stamp = stamp(bytes);
+            let unchanged = previous.0.get(relative.as_str()) == Some(&stamp)
+                && lengths.get(&path) == Some(&stamp[0]);
+
+            if !unchanged {
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                write_if_changed(&path, bytes)?;
             }
-            write_if_changed(&path, bytes)?;
+            written.0.insert(relative.as_str().to_owned(), stamp);
             kept.insert(path);
         }
         for (path, source) in self.copies() {
@@ -124,7 +168,8 @@ impl Overrides {
             write_if_changed(&path, text.as_bytes())?;
             kept.insert(path);
         }
-        remove_all_but(&layer_dir, &kept)
+        remove_all_but(&layer_dir, &kept)?;
+        written.save(dir)
     }
 }
 
@@ -179,6 +224,19 @@ fn copy_if_changed(source: &Path, path: &Path) -> AppResult<()> {
         filetime::set_file_mtime(path, modified)?;
     }
     Ok(())
+}
+
+/// The length of each file under `dir`, by its path.
+fn file_lengths(dir: &Path) -> AppResult<BTreeMap<PathBuf, u64>> {
+    let mut lengths = BTreeMap::new();
+    for entry in WalkDir::new(dir).min_depth(1) {
+        let entry = entry.map_err(io::Error::from)?;
+        if entry.file_type().is_file() {
+            let length = entry.metadata().map_err(io::Error::from)?.len();
+            lengths.insert(entry.into_path(), length);
+        }
+    }
+    Ok(lengths)
 }
 
 /// Remove every file under `dir` outside `kept`, and each directory that leaves empty.
